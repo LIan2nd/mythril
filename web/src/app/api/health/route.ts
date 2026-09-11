@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getDb } from '@/infra/db/client';
+import { ensureDbReady } from '@/infra/db/ensure-ready';
 import { ok } from '@/app/lib/http';
 import type { ApiResponse } from '@/domain/types';
 
@@ -7,6 +8,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(): Promise<NextResponse> {
   try {
+    await ensureDbReady();
     await getDb()`select 1`;
     return ok({ status: 'ok', db: 'ok' });
   } catch (err) {

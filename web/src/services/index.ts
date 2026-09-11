@@ -5,6 +5,7 @@ import {
   PostgresSprintRepo,
   PostgresUserRepo,
 } from '@/infra/db/repositories';
+import { ensureDbReady } from '@/infra/db/ensure-ready';
 import { BoardService } from './board-service';
 import { ChecklistService } from './checklist-service';
 import { IssueService } from './issue-service';
@@ -23,6 +24,7 @@ let singleton: Services | null = null;
 
 export function getServices(): Services {
   if (!singleton) {
+    ensureDbReady().catch(() => {});
     const projects = new PostgresProjectRepo();
     const sprints = new PostgresSprintRepo();
     const users = new PostgresUserRepo();

@@ -7,8 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "vitest run",
-    "test:db": "DATABASE_URL=\"${MYTHRIL_TEST_DATABASE_URL:-postgresql://mythril:mythril@localhost:5433/mythril}\" MYTHRIL_TEST_DATABASE_URL=\"${MYTHRIL_TEST_DATABASE_URL:-postgresql://mythril:mythril@localhost:5433/mythril}\" vitest run tests/db"
+    "test": "vitest run tests/unit",
+    "test:db": "MYTHRIL_DB_TESTS=1 vitest run tests/db"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const TEST_URL = process.env.MYTHRIL_TEST_DATABASE_URL;
+const GATE = process.env.MYTHRIL_DB_TESTS === '1';
 
 const db = (await import('@/services')).getServices();
 const { bootstrapDb } = await import('@/infra/db/bootstrap');
@@ -11,7 +11,7 @@ interface Cleanup {
 
 const cleanup: Cleanup = { ids: [] };
 
-describe.skipIf(!TEST_URL)('postgres integration', () => {
+describe.skipIf(!GATE)('postgres integration', () => {
   beforeAll(async () => {
     await bootstrapDb();
   });
