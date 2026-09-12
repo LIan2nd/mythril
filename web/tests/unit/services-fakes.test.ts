@@ -1,27 +1,82 @@
 import { describe, expect, it } from 'vitest';
-import { NotFoundError, ValidationError } from '@/domain/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import type {
+  AdminUserPatch,
+  BoardColumnRepo,
   ChecklistRepo,
   CreateIssueInput,
   IssueRepo,
   ProjectRepo,
   SprintRepo,
   UpdateIssueInput,
+  UserProfilePatch,
   UserRepo,
 } from '@/domain/repositories';
-import type { ChecklistItem, ColumnId, Issue, IssueType, Priority, Project, Sprint, User } from '@/domain/types';
-import { COLUMN_IDS } from '@/domain/types';
+import type {
+  AuthUser,
+  BoardColumn,
+  ChecklistItem,
+  Issue,
+  Priority,
+  Project,
+  Sprint,
+  User,
+} from '@/domain/types';
+import { DEFAULT_COLUMNS } from '@/domain/types';
 import { BoardService, daysLeftFrom } from '@/services/board-service';
 import { ChecklistService, MAX_CHECKLIST_ITEMS } from '@/services/checklist-service';
 import { DEFAULT_CHECKLIST, IssueService } from '@/services/issue-service';
 
+const ADMIN: AuthUser = {
+  id: 1, username: 'admin', code: 'AD', displayName: 'Admin', role: 'admin', status: 'active', color: 'sky', hasAvatar: false,
+};
+const MEMBER: AuthUser = {
+  id: 2, username: 'mk', code: 'MK', displayName: 'M. Kade', role: 'member', status: 'active', color: 'yellow', hasAvatar: false,
+};
+
+function suffixOf(key: string): number {
+  return Number(/(\d+)$/.exec(key)?.[1] ?? '0');
+}
+
 class FakeProjects implements ProjectRepo {
-  constructor(public rows: Project[] = [{ id: 1, key: 'NEBULA-OS', name: 'NEBULA-OS' }]) {}
+  constructor(public rows: Project[] = [{ id: 1, key: 'NEBULA-OS', name: 'NEBULA-OS' }], public members: string[] = ['MK', 'JT']) {}
   async list() {
     return [...this.rows];
   }
   async getByKey(key: string) {
     return this.rows.find((p) => p.key === key) ?? null;
+  }
+  async getById(id: number) {
+    return this.rows.find((p) => p.id === id) ?? null;
+  }
+  async create(input: { key: string; name: string }) {
+    const project = { id: this.rows.length + 1, ...input };
+    this.rows.push(project);
+    return project;
+  }
+  async update(id: number, patch: { key?: string; name?: string }) {
+    const project = this.rows.find((p) => p.id === id);
+    if (!project) throw new NotFoundError(`Project ${id} not found`);
+    Object.assign(project, patch);
+    return { ...project };
+  }
+  async remove(id: number) {
+    this.rows = this.rows.filter((p) => p.id !== id);
+  }
+  async countIssues() {
+    return 0;
+  }
+  async listForUser(userCode: string) {
+    return userCode && this.members.includes(userCode) ? this.list() : [];
+  }
+  async memberCodes() {
+    return [...this.members];
+  }
+  async isMember(_projectId: number, userCode: string) {
+    return this.members.includes(userCode);
+  }
+  async setMembers(_projectId: number, codes: string[]) {
+    this.members = [...codes];
   }
 }
 
@@ -46,10 +101,75 @@ class FakeUsers implements UserRepo {
   async getByCode(code: string) {
     return this.rows.find((u) => u.code === code) ?? null;
   }
+  authRows: AuthUser[] = [
+    MEMBER,
+    { id: 3, username: 'jt', code: 'JT', displayName: 'J. Torres', role: 'member', status: 'active', color: 'sky', hasAvatar: false },
+  ];
+  async listAuth() {
+    return [...this.authRows];
+  }
+  async listAuthByCodes(codes: string[]) {
+    return this.authRows.filter((u) => u.code && codes.includes(u.code));
+  }
+  async getAuthByUsername() {
+    return null;
+  }
+  async create(_input: unknown): Promise<AuthUser> {
+    throw new Error('not used');
+  }
+  async updateProfile(_id: number, _patch: UserProfilePatch): Promise<AuthUser> {
+    throw new Error('not used');
+  }
+  async adminPatch(_id: number, _patch: AdminUserPatch): Promise<AuthUser> {
+    throw new Error('not used');
+  }
+  async updatePassword(_id: number, _passwordHash: string): Promise<void> {
+    throw new Error('not used');
+  }
+  async setAvatar(_id: number, _avatar: Uint8Array | null, _avatarType: string | null): Promise<AuthUser> {
+    throw new Error('not used');
+  }
+  async getAvatarByCode() {
+    return null;
+  }
+  async remove() {
+    throw new Error('not used');
+  }
 }
 
-function suffixOf(key: string): number {
-  return Number(/(\d+)$/.exec(key)?.[1] ?? '0');
+class FakeColumns implements BoardColumnRepo {
+  rows: BoardColumn[] = DEFAULT_COLUMNS.map((c) => ({ ...c }));
+  async list() {
+    return [...this.rows].sort((a, b) => a.position - b.position).map((c) => ({ ...c }));
+  }
+  async getByKey(key: string) {
+    const found = this.rows.find((c) => c.key === key);
+    return found ? { ...found } : null;
+  }
+  async create(input: { key: string; label: string; kind: BoardColumn['kind']; color: BoardColumn['color']; beforeKey: string | null }) {
+    const anchor = input.beforeKey ? this.rows.find((c) => c.key === input.beforeKey) : undefined;
+    const position = anchor ? anchor.position : this.rows.length;
+    for (const c of this.rows) if (c.position >= position) c.position += 1;
+    const column = { key: input.key, label: input.label, kind: input.kind, color: input.color, position };
+    this.rows.push(column);
+    return { ...column };
+  }
+  async update(key: string, patch: Partial<Pick<BoardColumn, 'label' | 'kind' | 'color'>>) {
+    const column = this.rows.find((c) => c.key === key);
+    if (!column) throw new NotFoundError(`Column ${key} not found`);
+    Object.assign(column, patch);
+    return { ...column };
+  }
+  async reorder(orderedKeys: string[]) {
+    orderedKeys.forEach((key, position) => {
+      const column = this.rows.find((c) => c.key === key);
+      if (column) column.position = position;
+    });
+    return this.list();
+  }
+  async remove(key: string) {
+    this.rows = this.rows.filter((c) => c.key !== key);
+  }
 }
 
 class FakeIssues implements IssueRepo {
@@ -57,8 +177,8 @@ class FakeIssues implements IssueRepo {
   private nextId = 1;
   constructor(private users: FakeUsers) {}
 
-  seed(issue: Partial<Issue> & { key: string; status: ColumnId; position: number }): Issue {
-    const user = this.users.rows.find((u) => u.code === (issue.assignee?.code ?? 'MK')) ?? this.users.rows[0];
+  seed(issue: Partial<Issue> & { key: string; status: string; position: number }): Issue {
+    const assignee = this.users.rows.find((u) => u.code === (issue.assignee?.code ?? 'MK')) ?? this.users.rows[0];
     const full: Issue = {
       id: this.nextId++,
       projectId: 1,
@@ -66,7 +186,7 @@ class FakeIssues implements IssueRepo {
       description: '',
       priority: 'MED',
       type: 'TASK',
-      assignee: user,
+      assignee,
       checklist: [],
       ...issue,
     } as Issue;
@@ -74,7 +194,7 @@ class FakeIssues implements IssueRepo {
     return full;
   }
 
-  columnRows(projectId: number, status: ColumnId): Issue[] {
+  columnRows(projectId: number, status: string): Issue[] {
     return this.rows
       .filter((i) => i.projectId === projectId && i.status === status)
       .sort((a, b) => a.position - b.position || a.id - b.id);
@@ -97,11 +217,16 @@ class FakeIssues implements IssueRepo {
       title: input.title,
       description: input.description ?? '',
       priority: input.priority as Priority,
-      type: input.type as IssueType,
+      type: input.type as Issue['type'],
       status: input.status,
       assignee,
       position: col.length ? col[col.length - 1].position + 1 : 0,
-      checklist: (input.checklistTexts ?? []).map((text, position) => ({ id: 1000 + this.nextId * 10 + position, text, done: false, position })),
+      checklist: (input.checklistTexts ?? []).map((text, position) => ({
+        id: 1000 + this.nextId * 10 + position,
+        text,
+        done: false,
+        position,
+      })),
     };
     this.rows.push(issue);
     return { ...issue };
@@ -130,7 +255,7 @@ class FakeIssues implements IssueRepo {
     if (idx < 0) throw new NotFoundError(`Issue ${id} not found`);
     this.rows.splice(idx, 1);
   }
-  async move(id: number, status: ColumnId, beforeIssueId: number | null): Promise<void> {
+  async move(id: number, status: string, beforeIssueId: number | null): Promise<void> {
     const issue = this.rows.find((i) => i.id === id);
     if (!issue) throw new NotFoundError(`Issue ${id} not found`);
     if (beforeIssueId !== null) {
@@ -146,13 +271,19 @@ class FakeIssues implements IssueRepo {
     const index = beforeIssueId === null ? ids.length : Math.max(0, ids.indexOf(beforeIssueId));
     ids.splice(index, 0, id);
     issue.status = status;
-    for (const [pos, sid] of ids.entries()) {
-      this.rows.find((i) => i.id === sid)!.position = pos;
+    for (const [position, sid] of ids.entries()) {
+      this.rows.find((i) => i.id === sid)!.position = position;
     }
   }
   async generateKey(_projectKey = ''): Promise<string> {
     const max = this.rows.reduce((m, i) => Math.max(m, suffixOf(i.key)), 0);
     return `MY-${max + 1}`;
+  }
+  async countByStatus(status: string) {
+    return this.rows.filter((i) => i.status === status).length;
+  }
+  async countByAssignee(userCode: string) {
+    return this.rows.filter((i) => i.assignee.code === userCode).length;
   }
 }
 
@@ -187,6 +318,12 @@ class FakeChecklist implements ChecklistRepo {
   async listByIssue(issueId: number): Promise<ChecklistItem[]> {
     return this.ofIssue(issueId).map((c) => ({ ...c }));
   }
+  async getIssueId(itemId: number) {
+    for (const [issueId, list] of this.items.entries()) {
+      if (list.some((c) => c.id === itemId)) return issueId;
+    }
+    return null;
+  }
 }
 
 function fixtures() {
@@ -195,46 +332,51 @@ function fixtures() {
   const sprints = new FakeSprints();
   const issues = new FakeIssues(users);
   const checklist = new FakeChecklist();
-  const board = new BoardService({ projects, sprints, users, issues });
-  const issueSvc = new IssueService({ projects, users, issues });
-  const checklistSvc = new ChecklistService({ issues, checklist });
-  return { users, projects, sprints, issues, checklist, board, issueSvc, checklistSvc };
+  const columns = new FakeColumns();
+  const board = new BoardService({ projects, sprints, users, issues, columns });
+  const issueSvc = new IssueService({ projects, users, issues, columns });
+  const checklistSvc = new ChecklistService({ projects, issues, checklist });
+  return { users, projects, sprints, issues, checklist, columns, board, issueSvc, checklistSvc };
 }
 
 const basePayload = {
   title: 'Wire the widget',
   priority: 'MED' as const,
   type: 'TASK' as const,
-  status: 'todo' as const,
+  status: 'todo',
   assignee: 'MK',
 };
 
 describe('IssueService.createIssue validation (fake repos, DIP proof)', () => {
   it('rejects empty and >120 char titles', async () => {
     const { issueSvc } = fixtures();
-    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, title: '   ' })).rejects.toBeInstanceOf(ValidationError);
-    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, title: 'x'.repeat(121) })).rejects.toBeInstanceOf(ValidationError);
+    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, title: '   ' }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
+    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, title: 'x'.repeat(121) }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
   });
 
   it('rejects more than 5 checklist texts', async () => {
     const { issueSvc } = fixtures();
     const six = ['a', 'b', 'c', 'd', 'e', 'f'];
-    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, checklistTexts: six })).rejects.toBeInstanceOf(ValidationError);
+    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, checklistTexts: six }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
   });
 
   it('applies description + checklist defaults', async () => {
     const { issueSvc } = fixtures();
-    const issue = await issueSvc.createIssue('NEBULA-OS', basePayload);
+    const issue = await issueSvc.createIssue('NEBULA-OS', basePayload, MEMBER);
     expect(issue.description).toMatch(/^Created from \+ New Issue · \d{2}\/\d{2}\/\d{4}$/);
     expect(issue.checklist.map((c) => c.text)).toEqual(DEFAULT_CHECKLIST);
-    const withTexts = await issueSvc.createIssue('NEBULA-OS', { ...basePayload, checklistTexts: ['only one'] });
+    const withTexts = await issueSvc.createIssue('NEBULA-OS', { ...basePayload, checklistTexts: ['only one'] }, MEMBER);
     expect(withTexts.checklist).toHaveLength(1);
   });
 
-  it('rejects unknown project and unknown assignee with domain errors', async () => {
+  it('rejects unknown project, unknown assignee, unknown column, non-member actor', async () => {
     const { issueSvc } = fixtures();
-    await expect(issueSvc.createIssue('NOPE', basePayload)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, assignee: 'ZZ' })).rejects.toBeInstanceOf(ValidationError);
+    await expect(issueSvc.createIssue('NOPE', basePayload, ADMIN)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, assignee: 'ZZ' }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
+    await expect(issueSvc.createIssue('NEBULA-OS', { ...basePayload, status: 'ghost' }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
+    const f = fixtures();
+    f.projects.members = ['JT'];
+    await expect(f.issueSvc.createIssue('NEBULA-OS', basePayload, MEMBER)).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
 
@@ -244,7 +386,7 @@ describe('generateKey next-MY suffix', () => {
     issues.seed({ key: 'MY-100', status: 'todo', position: 0 });
     issues.seed({ key: 'MY-109', status: 'shipped', position: 0, projectId: 2 });
     expect(await issues.generateKey('NEBULA-OS')).toBe('MY-110');
-    const created = await issueSvc.createIssue('NEBULA-OS', basePayload);
+    const created = await issueSvc.createIssue('NEBULA-OS', basePayload, ADMIN);
     expect(created.key).toBe('MY-110');
     expect(await issues.generateKey('PIXELFORGE')).toBe('MY-111');
   });
@@ -263,7 +405,7 @@ describe('move renumbering', () => {
 
   it('cross-column append renumbers the target column 0..n-1', async () => {
     const f = setup();
-    const issues = await f.issueSvc.moveIssue(f.a.id, { status: 'progress', beforeIssueId: null });
+    const issues = await f.issueSvc.moveIssue(f.a.id, { status: 'progress', beforeIssueId: null }, ADMIN);
     expect(pos(f, f.a.id)).toBe(1);
     expect(pos(f, f.d.id)).toBe(0);
     expect(issues.map((i) => [i.key, i.position])).toEqual([
@@ -276,23 +418,24 @@ describe('move renumbering', () => {
 
   it('inserts immediately before the target issue', async () => {
     const f = setup();
-    await f.issueSvc.moveIssue(f.c.id, { status: 'progress', beforeIssueId: f.d.id });
+    await f.issueSvc.moveIssue(f.c.id, { status: 'progress', beforeIssueId: f.d.id }, ADMIN);
     expect([pos(f, f.c.id), pos(f, f.d.id)]).toEqual([0, 1]);
   });
 
   it('reorders within a column before a neighbor', async () => {
     const f = setup();
-    await f.issueSvc.moveIssue(f.b.id, { status: 'todo', beforeIssueId: f.a.id });
+    await f.issueSvc.moveIssue(f.b.id, { status: 'todo', beforeIssueId: f.a.id }, ADMIN);
     const reordered = f.issues.columnRows(1, 'todo');
     expect(reordered.map((i) => i.key)).toEqual(['MY-102', 'MY-101', 'MY-103']);
     expect(reordered.map((i) => i.position)).toEqual([0, 1, 2]);
   });
 
-  it('refuses unknown issue, self-target and wrong-column target', async () => {
+  it('refuses unknown issue, self-target, wrong-column target and unknown column', async () => {
     const f = setup();
-    await expect(f.issueSvc.moveIssue(999, { status: 'todo', beforeIssueId: null })).rejects.toBeInstanceOf(NotFoundError);
-    await expect(f.issueSvc.moveIssue(f.a.id, { status: 'todo', beforeIssueId: f.a.id })).rejects.toBeInstanceOf(ValidationError);
-    await expect(f.issueSvc.moveIssue(f.a.id, { status: 'progress', beforeIssueId: f.b.id })).rejects.toBeInstanceOf(ValidationError);
+    await expect(f.issueSvc.moveIssue(999, { status: 'todo', beforeIssueId: null }, ADMIN)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(f.issueSvc.moveIssue(f.a.id, { status: 'todo', beforeIssueId: f.a.id }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
+    await expect(f.issueSvc.moveIssue(f.a.id, { status: 'progress', beforeIssueId: f.b.id }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
+    await expect(f.issueSvc.moveIssue(f.a.id, { status: 'nowhere', beforeIssueId: null }, ADMIN)).rejects.toBeInstanceOf(ValidationError);
   });
 });
 
@@ -301,27 +444,29 @@ describe('ChecklistService', () => {
     const { checklistSvc, checklist, issues } = fixtures();
     const issue = issues.seed({ key: 'MY-120', status: 'todo', position: 0 });
     checklist.push(issue.id, { id: 1, text: 'step one', done: false, position: 0 });
-    const toggled = await checklistSvc.toggleItem(1, true);
+    const toggled = await checklistSvc.toggleItem(1, true, MEMBER);
     expect(toggled.done).toBe(true);
     expect((await checklist.listByIssue(issue.id))[0].done).toBe(true);
-    await expect(checklistSvc.toggleItem(77, true)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(checklistSvc.toggleItem(77, true, MEMBER)).rejects.toBeInstanceOf(NotFoundError);
   });
 
-  it('caps items at 5 and unknown issue not-found', async () => {
-    const { checklistSvc, checklist, issues } = fixtures();
+  it('caps items at 5, rejects whitespace, not-found issue, and member guard', async () => {
+    const { checklistSvc, checklist, issues, projects } = fixtures();
     const issue = issues.seed({ key: 'MY-121', status: 'todo', position: 0 });
     for (let i = 0; i < MAX_CHECKLIST_ITEMS; i += 1) checklist.push(issue.id, { id: 10 + i, text: `t${i}`, done: false, position: i });
-    await expect(checklistSvc.addItem(issue.id, 'one too many')).rejects.toBeInstanceOf(ValidationError);
-    await expect(checklistSvc.addItem(999, 'text')).rejects.toBeInstanceOf(NotFoundError);
-    await expect(checklistSvc.addItem(issue.id, '  ')).rejects.toBeInstanceOf(ValidationError);
-    const okItem = await checklistSvc.addItem(issues.seed({ key: 'MY-122', status: 'todo', position: 0 }).id, 'fresh');
+    await expect(checklistSvc.addItem(issue.id, 'one too many', MEMBER)).rejects.toBeInstanceOf(ValidationError);
+    await expect(checklistSvc.addItem(999, 'text', MEMBER)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(checklistSvc.addItem(issue.id, '  ', MEMBER)).rejects.toBeInstanceOf(ValidationError);
+    projects.members = ['JT'];
+    await expect(checklistSvc.addItem(issue.id, 'outsider', MEMBER)).rejects.toBeInstanceOf(ForbiddenError);
+    const okItem = await checklistSvc.addItem(issues.seed({ key: 'MY-122', status: 'todo', position: 0 }).id, 'fresh', ADMIN);
     expect(okItem.text).toBe('fresh');
   });
 
   it('createIssue honors the 5 exact items when provided', async () => {
     const { issueSvc, issues } = fixtures();
     const five = ['a', 'b', 'c', 'd', 'e'];
-    const created = await issueSvc.createIssue('NEBULA-OS', { ...basePayload, checklistTexts: five });
+    const created = await issueSvc.createIssue('NEBULA-OS', { ...basePayload, checklistTexts: five }, MEMBER);
     expect(created.checklist.map((c) => c.text)).toEqual(five);
     void issues;
   });
@@ -344,22 +489,29 @@ describe('BoardService summaries + board', () => {
     const f = fixtures();
     f.sprints.setActive(1, sprint('2030-01-01'));
     f.projects.rows.push({ id: 2, key: 'APEX-API', name: 'APEX-API' });
-    const summaries = await f.board.listProjectSummaries();
+    const summaries = await f.board.listProjectSummaries(ADMIN);
     expect(summaries[0].activeSprint?.number).toBe(14);
     expect(summaries[0].activeSprint?.daysLeft).toBeGreaterThanOrEqual(0);
     expect(summaries[1].activeSprint).toBeNull();
+    const memberSummaries = await f.board.listProjectSummaries(MEMBER);
+    expect(memberSummaries).toHaveLength(2);
+    f.projects.members = ['AD'];
+    expect(await f.board.listProjectSummaries(MEMBER)).toHaveLength(0);
   });
 
-  it('getBoard sorts by column order then position and 404s unknown key', async () => {
+  it('getBoard sorts by column order, shows roster, 404s unknown key, 403s outsider', async () => {
     const f = fixtures();
     f.issues.seed({ key: 'MY-130', status: 'shipped', position: 0 });
     f.issues.seed({ key: 'MY-131', status: 'todo', position: 1 });
     f.issues.seed({ key: 'MY-132', status: 'todo', position: 0 });
-    const board = await f.board.getBoard('NEBULA-OS');
+    const board = await f.board.getBoard('NEBULA-OS', MEMBER);
     expect(board.issues.map((i) => i.key)).toEqual(['MY-132', 'MY-131', 'MY-130']);
-    expect(board.users).toHaveLength(2);
+    expect(board.users.map((u) => u.code)).toEqual(['MK', 'JT']);
+    expect(board.columns).toHaveLength(4);
     expect(board.sprint).toBeNull();
-    await expect(f.board.getBoard('GHOST')).rejects.toBeInstanceOf(NotFoundError);
-    expect(COLUMN_IDS).toHaveLength(4);
+    await expect(f.board.getBoard('GHOST', MEMBER)).rejects.toBeInstanceOf(NotFoundError);
+    f.projects.members = ['AD'];
+    await expect(f.board.getBoard('NEBULA-OS', MEMBER)).rejects.toBeInstanceOf(ForbiddenError);
+    await f.board.getBoard('NEBULA-OS', ADMIN);
   });
 });

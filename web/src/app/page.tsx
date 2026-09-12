@@ -11,8 +11,38 @@ import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { ErrorPanel } from "../components/ErrorPanel";
 import { Toast } from "../components/Toast";
 
+function SessionSplash() {
+  return (
+    <main className="wrap">
+      <div className="auth-wrap" style={{ padding: 0 }}>
+        <div className="auth-card" role="status" aria-label="Checking session">
+          <div className="auth-logo">
+            <span className="logo-mark">M</span>
+            <span>MYTHRIL</span>
+          </div>
+          <h1>Checking session</h1>
+          <div className="skel" aria-hidden="true">
+            <i className="short" />
+            <i />
+            <i />
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function NoAccess() {
+  return (
+    <div className="empty" role="status" style={{ padding: 32 }}>
+      No access yet — projects you have access to will appear here once an admin assigns you.
+    </div>
+  );
+}
+
 function DashboardBody() {
-  const { phase, switching } = useBoard();
+  const { phase, switching, sessionStatus, projects, board, forbidden } = useBoard();
+  if (sessionStatus === "loading") return <SessionSplash />;
   return (
     <>
       <Topbar />
@@ -21,6 +51,10 @@ function DashboardBody() {
           <LoadingSkeleton />
         ) : phase === "error" ? (
           <ErrorPanel />
+        ) : forbidden ? (
+          <NoAccess />
+        ) : projects.length === 0 || !board ? (
+          <NoAccess />
         ) : (
           <>
             <SprintBanner />

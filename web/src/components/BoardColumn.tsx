@@ -1,31 +1,29 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { COLUMN_LABELS, type ColumnId, type Issue } from "../domain/types";
+import type { BoardColumn as BoardColumnType, Issue } from "../domain/types";
 import { useBoard } from "../lib/store";
 import { IssueCard } from "./IssueCard";
 
-interface BoardColumnProps {
-  column: ColumnId;
-  className: string;
+interface BoardColumnViewProps {
+  column: BoardColumnType;
   issues: Issue[];
   hiddenIds: Set<number>;
   dragId: number | null;
   onDragStart: (id: number, el: HTMLElement) => void;
   onDragEnd: () => void;
-  onDropCard: (targetColumn: ColumnId, beforeIssueId: number | null) => void;
+  onDropCard: (targetColumn: string, beforeIssueId: number | null) => void;
 }
 
-export function BoardColumn({
+export function BoardColumnView({
   column,
-  className,
   issues,
   hiddenIds,
   dragId,
   onDragStart,
   onDragEnd,
   onDropCard,
-}: BoardColumnProps) {
+}: BoardColumnViewProps) {
   const { moveIssue } = useBoard();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
@@ -43,9 +41,9 @@ export function BoardColumn({
   };
 
   return (
-    <div className={`col ${className}`} data-col={column}>
-      <div className="col-head">
-        <h2>{COLUMN_LABELS[column]}</h2>
+    <div className="col" data-col={column.key}>
+      <div className={`col-head colhead-${column.color}`}>
+        <h2>{column.label}</h2>
         <span className="count num" data-count>
           {String(issues.length).padStart(2, "0")}
         </span>
@@ -53,7 +51,7 @@ export function BoardColumn({
       <div
         ref={bodyRef}
         className={`col-body${over ? " dragover" : ""}`}
-        data-drop={column}
+        data-drop={column.key}
         onDragOver={(e) => {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
@@ -71,7 +69,7 @@ export function BoardColumn({
           e.preventDefault();
           setOver(false);
           const beforeId = pickTarget(e.clientY);
-          onDropCard(column, beforeId);
+          onDropCard(column.key, beforeId);
         }}
       >
         {issues.map((issue) => (
@@ -94,3 +92,5 @@ export function BoardColumn({
     </div>
   );
 }
+
+export const BoardColumn = BoardColumnView;

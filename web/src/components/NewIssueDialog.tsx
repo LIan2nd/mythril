@@ -1,27 +1,35 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ColumnId, IssueType, Priority } from "../domain/types";
+import type { IssueType, Priority } from "../domain/types";
+import { defaultColumnByKind } from "../domain/types";
 import { useBoard } from "../lib/store";
 import { FocusTrap } from "./FocusTrap";
 
 export function NewIssueDialog() {
-  const { dialogOpen, setDialogOpen, createIssue, board } = useBoard();
+  const { dialogOpen, setDialogOpen, createIssue, board, columns, user } = useBoard();
   const triggerRef = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState<Priority>("MED");
-  const [column, setColumn] = useState<ColumnId>("todo");
+  const fallbackColumn = columns[0]?.key ?? defaultColumnByKind(columns, "backlog")?.key ?? "todo";
+  const [column, setColumn] = useState(fallbackColumn);
   const [issueType, setIssueType] = useState<IssueType>("TASK");
-  const [assignee, setAssignee] = useState("MK");
+  const [assignee, setAssignee] = useState("");
   const [checks, setChecks] = useState("Repro steps confirmed\nAdd regression test");
 
   useEffect(() => {
     if (dialogOpen) {
       triggerRef.current = document.activeElement as HTMLElement | null;
       titleRef.current?.focus();
+      if (columns.length && !columns.some((c) => c.key === column)) setColumn(columns[0].key);
+      if (!assignee && board?.users.length) {
+        const first = board.users.find((u) => u.code === user?.code) ?? board.users[0];
+        if (first.code) setAssignee(first.code);
+      }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dialogOpen]);
 
   if (!dialogOpen) return null;
@@ -96,12 +104,13 @@ export function NewIssueDialog() {
                 className="select"
                 id="nCol"
                 value={column}
-                onChange={(e) => setColumn(e.target.value as ColumnId)}
+                onChange={(e) => setColumn(e.target.value)}
               >
-                <option value="todo">To Do</option>
-                <option value="progress">In Progress</option>
-                <option value="review">Code Review</option>
-                <option value="shipped">Shipped</option>
+                {columns.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -127,8 +136,8 @@ export function NewIssueDialog() {
                 onChange={(e) => setAssignee(e.target.value)}
               >
                 {(board?.users ?? []).map((u) => (
-                  <option key={u.code} value={u.code}>
-                    {u.code === "MK" ? "MK — You" : `${u.code} — ${u.name}`}
+                  <option key={u.code ?? u.id} value={u.code ?? ""}>
+                    {u.code === user?.code ? `${u.code} — You` : `${u.code} — ${u.displayName}`}
                   </option>
                 ))}
               </select>

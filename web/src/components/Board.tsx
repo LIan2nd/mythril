@@ -1,19 +1,12 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { COLUMN_IDS, type ColumnId } from "../domain/types";
+import type { BoardColumn } from "../domain/types";
 import { useBoard } from "../lib/store";
-import { BoardColumn } from "./BoardColumn";
-
-const COL_CLASSES: Record<ColumnId, string> = {
-  todo: "col-todo",
-  progress: "col-prog",
-  review: "col-rev",
-  shipped: "col-ship",
-};
+import { BoardColumnView } from "./BoardColumn";
 
 export function Board() {
-  const { issues, visibleIssues, moveIssue } = useBoard();
+  const { issues, visibleIssues, moveIssue, columns } = useBoard();
   const [dragId, setDragId] = useState<number | null>(null);
   const dragEl = useRef<HTMLElement | null>(null);
 
@@ -24,20 +17,24 @@ export function Board() {
   );
 
   const byColumn = useMemo(() => {
-    const map = { todo: [], progress: [], review: [], shipped: [] } as Record<ColumnId, typeof issues>;
-    for (const i of issues) map[i.status].push(i);
-    for (const col of COLUMN_IDS) map[col].sort((a, b) => a.position - b.position || a.id - b.id);
+    const map = new Map<string, typeof issues>();
+    for (const c of columns) map.set(c.key, []);
+    for (const i of issues) {
+      const bucket = map.get(i.status);
+      if (bucket) bucket.push(i);
+      else map.set(i.status, [i]);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.position - b.position || a.id - b.id);
     return map;
-  }, [issues]);
+  }, [issues, columns]);
 
   return (
-    <section className="board" aria-label="Kanban board">
-      {COLUMN_IDS.map((col) => (
-        <BoardColumn
-          key={col}
+    <section className="board" aria-label="Kanban board" style={columns.length ? { gridTemplateColumns: `repeat(${columns.length},minmax(0,1fr))` } : undefined}>
+      {columns.map((col: BoardColumn) => (
+        <BoardColumnView
+          key={col.key}
           column={col}
-          className={COL_CLASSES[col]}
-          issues={byColumn[col]}
+          issues={byColumn.get(col.key) ?? []}
           hiddenIds={hiddenIds}
           dragId={dragId}
           onDragStart={(id, el) => {
@@ -59,8 +56,9 @@ export function Board() {
             dragEl.current = null;
             setDragId(null);
             if (id == null) return;
+            const list = byColumn.get(targetColumn) ?? [];
             const normalized =
-              beforeIssueId === id ? nextSiblingOf(id, byColumn[targetColumn]) : beforeIssueId;
+              beforeIssueId === id ? nextSiblingOf(id, list) : beforeIssueId;
             void moveIssue(id, targetColumn, normalized);
           }}
         />

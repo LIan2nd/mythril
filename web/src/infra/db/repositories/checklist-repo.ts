@@ -36,4 +36,9 @@ export class PostgresChecklistRepo implements ChecklistRepo {
     `) as unknown as ChecklistRow[];
     return rows.map(rowToChecklist);
   }
+
+  async getIssueId(id: number): Promise<number | null> {
+    const rows = await this.sql`select issue_id from checklist_items where id = ${id} limit 1`;
+    return rows[0] ? Number(rows[0].issue_id) : null;
+  }
 }

@@ -1,12 +1,17 @@
 import type {
+  AuthUser,
+  BoardColumn,
   ChecklistItem,
-  ColumnId,
+  ColumnColor,
+  ColumnKind,
   CreateIssuePayload,
   Issue,
   Project,
+  Role,
   Sprint,
   UpdateIssuePayload,
   User,
+  UserStatus,
 } from './types';
 
 export interface CreateIssueInput extends CreateIssuePayload {
@@ -15,9 +20,49 @@ export interface CreateIssueInput extends CreateIssuePayload {
 
 export type UpdateIssueInput = UpdateIssuePayload;
 
+export interface NewUserInput {
+  code: string;
+  username: string;
+  displayName: string;
+  passwordHash: string;
+  role: Role;
+  status: UserStatus;
+  color: string;
+}
+
+export interface UserProfilePatch {
+  username?: string;
+  displayName?: string;
+  color?: string;
+}
+
+export interface AdminUserPatch {
+  role?: Role;
+  status?: UserStatus;
+  displayName?: string;
+  color?: string;
+  code?: string;
+  passwordHash?: string;
+}
+
+export interface AuthRecord {
+  user: AuthUser;
+  passwordHash: string | null;
+}
+
 export interface ProjectRepo {
   list(): Promise<Project[]>;
   getByKey(key: string): Promise<Project | null>;
+  getById(id: number): Promise<Project | null>;
+  create(input: { key: string; name: string }): Promise<Project>;
+  update(id: number, patch: { key?: string; name?: string }): Promise<Project>;
+  remove(id: number): Promise<void>;
+  countIssues(projectId: number): Promise<number>;
+  /** Projects where the user is a member (no admin shortcut — callers handle role). */
+  listForUser(userCode: string): Promise<Project[]>;
+  memberCodes(projectId: number): Promise<string[]>;
+  isMember(projectId: number, userCode: string): Promise<boolean>;
+  setMembers(projectId: number, codes: string[]): Promise<void>;
 }
 
 export interface SprintRepo {
@@ -27,6 +72,38 @@ export interface SprintRepo {
 export interface UserRepo {
   list(): Promise<User[]>;
   getByCode(code: string): Promise<User | null>;
+  /** Every user as AuthUser (all statuses), ordered by code. */
+  listAuth(): Promise<AuthUser[]>;
+  listAuthByCodes(codes: string[]): Promise<AuthUser[]>;
+  getAuthByUsername(username: string): Promise<AuthUser | null>;
+  create(input: NewUserInput): Promise<AuthUser>;
+  updateProfile(id: number, patch: UserProfilePatch): Promise<AuthUser>;
+  adminPatch(id: number, patch: AdminUserPatch): Promise<AuthUser>;
+  updatePassword(id: number, passwordHash: string): Promise<void>;
+  setAvatar(id: number, avatar: Uint8Array | null, avatarType: string | null): Promise<AuthUser>;
+  getAvatarByCode(code: string): Promise<{ data: Uint8Array; type: string; updatedAt: string | null } | null>;
+  remove(id: number): Promise<void>;
+}
+
+export interface AuthRepo {
+  getRecordForLogin(username: string): Promise<AuthRecord | null>;
+  getUserById(id: number): Promise<AuthUser | null>;
+}
+
+export interface BoardColumnRepo {
+  list(): Promise<BoardColumn[]>;
+  getByKey(key: string): Promise<BoardColumn | null>;
+  /** Inserts at beforeKey's position (shifting following columns) or appends when null. */
+  create(input: {
+    key: string;
+    label: string;
+    kind: ColumnKind;
+    color: ColumnColor;
+    beforeKey: string | null;
+  }): Promise<BoardColumn>;
+  update(key: string, patch: { label?: string; kind?: ColumnKind; color?: ColumnColor }): Promise<BoardColumn>;
+  reorder(orderedKeys: string[]): Promise<BoardColumn[]>;
+  remove(key: string): Promise<void>;
 }
 
 export interface IssueRepo {
@@ -37,9 +114,11 @@ export interface IssueRepo {
   update(id: number, patch: UpdateIssuePayload): Promise<Issue>;
   remove(id: number): Promise<void>;
   /** Reposition within/at end of column; target column fully renumbered. */
-  move(id: number, status: ColumnId, beforeIssueId: number | null): Promise<void>;
+  move(id: number, status: string, beforeIssueId: number | null): Promise<void>;
   /** 'MY-<n>' where n = max numeric suffix across ALL projects + 1 (global seq, export behavior). */
   generateKey(projectKey: string): Promise<string>;
+  countByStatus(status: string): Promise<number>;
+  countByAssignee(userCode: string): Promise<number>;
 }
 
 export interface ChecklistRepo {
@@ -47,4 +126,5 @@ export interface ChecklistRepo {
   add(issueId: number, text: string): Promise<ChecklistItem>;
   toggle(id: number, done: boolean): Promise<ChecklistItem>;
   listByIssue(issueId: number): Promise<ChecklistItem[]>;
+  getIssueId(id: number): Promise<number | null>;
 }

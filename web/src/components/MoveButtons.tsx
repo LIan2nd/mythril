@@ -1,21 +1,21 @@
 "use client";
 
-import { COLUMN_IDS } from "../domain/types";
 import { useBoard } from "../lib/store";
 
 interface MoveButtonsProps {
   issueId: number;
   statusIndex: number;
+  columnCount: number;
 }
 
-export function MoveButtons({ issueId, statusIndex }: MoveButtonsProps) {
-  const { issues, moveIssue, deleteIssue } = useBoard();
+export function MoveButtons({ issueId, statusIndex, columnCount }: MoveButtonsProps) {
+  const { issues, columns, moveIssue, deleteIssue } = useBoard();
   const issue = issues.find((i) => i.id === issueId);
 
   const step = (dir: -1 | 1) => {
     const next = statusIndex + dir;
-    if (next < 0 || next >= COLUMN_IDS.length || !issue) return;
-    void moveIssue(issueId, COLUMN_IDS[next], null);
+    if (next < 0 || next >= columns.length || !issue) return;
+    void moveIssue(issueId, columns[next].key, null);
   };
 
   return (
@@ -25,7 +25,7 @@ export function MoveButtons({ issueId, statusIndex }: MoveButtonsProps) {
       </button>
       <button
         aria-label="Move right"
-        disabled={statusIndex >= COLUMN_IDS.length - 1}
+        disabled={statusIndex >= columnCount - 1}
         onClick={(e) => { e.stopPropagation(); step(1); }}
       >
         →

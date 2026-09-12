@@ -4,8 +4,8 @@ import { computeSprintStats } from "../domain/types";
 import { useBoard } from "../lib/store";
 
 export function SprintBanner() {
-  const { board, issues } = useBoard();
-  const stats = computeSprintStats(issues);
+  const { board, issues, columns } = useBoard();
+  const stats = computeSprintStats(issues, columns);
   const sprint = board?.sprint;
 
   return (

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { Issue } from "../domain/types";
+import type { BoardColumn, Issue } from "../domain/types";
+import { columnIndexOf, computeSprintStats, sortIssuesForBoard } from "../domain/types";
 import { applyIssueFilters, boardReducer } from "./board-reducer";
+
+const COLS: BoardColumn[] = [
+  { key: "back", label: "Backlog", kind: "backlog", color: "lavender", position: 0 },
+  { key: "work", label: "Doing", kind: "active", color: "yellow", position: 1 },
+  { key: "check", label: "Check", kind: "review", color: "coral", position: 2 },
+  { key: "live", label: "Live", kind: "done", color: "mint", position: 3 },
+  { key: "extra", label: "Extra", kind: "active", color: "sky", position: 4 },
+];
 
 function fakeIssue(over: Partial<Issue> & { id: number }): Issue {
   return {
@@ -61,14 +70,62 @@ describe("applyIssueFilters", () => {
     fakeIssue({ id: 1, key: "MY-104", title: "Avatar upload corrupts", priority: "HIGH", type: "BUG" }),
     fakeIssue({ id: 2, key: "MY-105", title: "Empty states", assignee: jt }),
   ];
-  it("filters mine by MK", () => {
-    expect(applyIssueFilters(issues, { mine: true, urgent: false, query: "" })).toHaveLength(1);
+  it("filters mine by session code", () => {
+    expect(applyIssueFilters(issues, { mine: true, mineCode: "MK", urgent: false, query: "" })).toHaveLength(1);
+    expect(applyIssueFilters(issues, { mine: true, mineCode: "JT", urgent: false, query: "" })[0].id).toBe(2);
   });
   it("filters urgent HIGH+BUG", () => {
-    expect(applyIssueFilters(issues, { mine: false, urgent: true, query: "" })[0].id).toBe(1);
+    expect(applyIssueFilters(issues, { mine: false, mineCode: null, urgent: true, query: "" })[0].id).toBe(1);
   });
   it("matches key or title case-insensitively", () => {
-    expect(applyIssueFilters(issues, { mine: false, urgent: false, query: "my-105" })).toHaveLength(1);
-    expect(applyIssueFilters(issues, { mine: false, urgent: false, query: "avatar" })).toHaveLength(1);
+    expect(applyIssueFilters(issues, { mine: false, mineCode: null, urgent: false, query: "my-105" })).toHaveLength(1);
+    expect(applyIssueFilters(issues, { mine: false, mineCode: null, urgent: false, query: "avatar" })).toHaveLength(1);
+  });
+});
+
+describe("dynamic columns", () => {
+  it("moves across custom keys with midpoint position", () => {
+    const state = [
+      fakeIssue({ id: 1, status: "back", position: 0 }),
+      fakeIssue({ id: 2, status: "work", position: 0 }),
+      fakeIssue({ id: 3, status: "work", position: 1 }),
+    ];
+    const next = boardReducer(state, { type: "MOVE", issueId: 1, status: "work", beforeIssueId: 3 });
+    const moved = next.find((i) => i.id === 1)!;
+    expect(moved.status).toBe("work");
+    expect(moved.position).toBeLessThan(1);
+  });
+
+  it("moves into a fifth column by key", () => {
+    const state = [fakeIssue({ id: 1, status: "back", position: 0 })];
+    const next = boardReducer(state, { type: "MOVE", issueId: 1, status: "extra", beforeIssueId: null });
+    expect(next[0].status).toBe("extra");
+  });
+
+  it("columnIndexOf follows column order", () => {
+    expect(columnIndexOf(COLS, "extra")).toBe(4);
+    expect(columnIndexOf(COLS, "missing")).toBe(COLS.length);
+  });
+
+  it("sortIssuesForBoard orders by dynamic columns then position", () => {
+    const issues = [
+      fakeIssue({ id: 1, status: "live", position: 5 }),
+      fakeIssue({ id: 2, status: "back", position: 9 }),
+      fakeIssue({ id: 3, status: "back", position: 1 }),
+    ];
+    expect(sortIssuesForBoard(issues, COLS).map((i) => i.id)).toEqual([3, 2, 1]);
+  });
+
+  it("computeSprintStats uses done/review kinds", () => {
+    const issues = [
+      fakeIssue({ id: 1, status: "live", priority: "HIGH", type: "BUG" }),
+      fakeIssue({ id: 2, status: "check", priority: "HIGH", type: "BUG" }),
+      fakeIssue({ id: 3, status: "back" }),
+    ];
+    const stats = computeSprintStats(issues, COLS);
+    expect(stats.done).toBe(1);
+    expect(stats.inReview).toBe(1);
+    expect(stats.highBugs).toBe(1);
+    expect(stats.pct).toBe(33);
   });
 });

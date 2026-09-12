@@ -1,6 +1,6 @@
 import { NotFoundError, ValidationError } from '@/domain/errors';
 import type { CreateIssueInput, IssueRepo, UpdateIssueInput } from '@/domain/repositories';
-import type { ColumnId, Issue } from '@/domain/types';
+import type { Issue } from '@/domain/types';
 import type { ParameterOrJSON } from 'postgres';
 import { getDb, type Sql } from '../client';
 import { ISSUE_KEY_PREFIX } from '../ddl';
@@ -12,10 +12,7 @@ const SELECT_ISSUE = `
          u.code as user_code, u.name as user_name, u.avatar_color as user_avatar_color
   from issues i left join users u on u.code = i.assignee`;
 
-const COLUMN_ORDER = `
-  case i.status
-    when 'todo' then 0 when 'progress' then 1 when 'review' then 2 when 'shipped' then 3 else 4
-  end`;
+const BOARD_ORDER = `order by coalesce(bc.position, 2147483647) asc, i.position asc, i.id asc`;
 
 async function nextPosition(sql: Sql, projectId: number, status: string): Promise<number> {
   const rows =
@@ -39,7 +36,7 @@ export class PostgresIssueRepo implements IssueRepo {
 
   async listByProject(projectId: number): Promise<Issue[]> {
     const rows = (await this.sql.unsafe(
-      `${SELECT_ISSUE} where i.project_id = $1 order by ${COLUMN_ORDER}, i.position asc, i.id asc`,
+      `${SELECT_ISSUE} left join board_columns bc on bc.key = i.status where i.project_id = $1 ${BOARD_ORDER}`,
       [projectId],
     )) as IssueRow[];
 
@@ -126,7 +123,7 @@ export class PostgresIssueRepo implements IssueRepo {
     if (rows.length === 0) throw new NotFoundError(`Issue ${id} not found`);
   }
 
-  async move(id: number, status: ColumnId, beforeIssueId: number | null): Promise<void> {
+  async move(id: number, status: string, beforeIssueId: number | null): Promise<void> {
     await this.sql.begin(async ($) => {
       const tx = $ as unknown as Sql;
       const current = (await tx`select project_id, status from issues where id = ${id}`) as unknown as {
@@ -164,6 +161,16 @@ export class PostgresIssueRepo implements IssueRepo {
 
   async generateKey(_projectKey: string): Promise<string> {
     return generateKeyWith(this.sql);
+  }
+
+  async countByStatus(status: string): Promise<number> {
+    const rows = await this.sql`select count(*)::int as count from issues where status = ${status}`;
+    return Number(rows[0]?.count ?? 0);
+  }
+
+  async countByAssignee(userCode: string): Promise<number> {
+    const rows = await this.sql`select count(*)::int as count from issues where assignee = ${userCode}`;
+    return Number(rows[0]?.count ?? 0);
   }
 
   private async fetchById(id: number): Promise<Issue> {

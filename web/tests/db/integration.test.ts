@@ -2,8 +2,28 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const GATE = process.env.MYTHRIL_DB_TESTS === '1';
 
-const db = (await import('@/services')).getServices();
+const raw = (await import('@/services')).getServices();
 const { bootstrapDb } = await import('@/infra/db/bootstrap');
+const ACTOR = {
+  id: 1, username: 'int-admin', code: 'IA', displayName: 'Integration Admin',
+  role: 'admin', status: 'active', color: 'sky', hasAvatar: false,
+} satisfies import('@/domain/types').AuthUser;
+const db = {
+  board: {
+    getBoard: (key: string) => raw.board.getBoard(key, ACTOR),
+    listProjectSummaries: () => raw.board.listProjectSummaries(ACTOR),
+  },
+  issue: {
+    createIssue: (key: string, payload: import('@/domain/types').CreateIssuePayload) => raw.issue.createIssue(key, payload, ACTOR),
+    updateIssue: (id: number, patch: import('@/domain/types').UpdateIssuePayload) => raw.issue.updateIssue(id, patch, ACTOR),
+    deleteIssue: (id: number) => raw.issue.deleteIssue(id, ACTOR),
+    moveIssue: (id: number, payload: import('@/domain/types').MoveIssuePayload) => raw.issue.moveIssue(id, payload, ACTOR),
+  },
+  checklist: {
+    addItem: (issueId: number, text: string) => raw.checklist.addItem(issueId, text, ACTOR),
+    toggleItem: (id: number, done: boolean) => raw.checklist.toggleItem(id, done, ACTOR),
+  },
+};
 
 interface Cleanup {
   ids: number[];
@@ -27,7 +47,7 @@ describe.skipIf(!GATE)('postgres integration', () => {
     await bootstrapDb();
     const board = await db.board.getBoard('NEBULA-OS');
     expect(board.issues).toHaveLength(10);
-    expect(board.users).toHaveLength(4);
+    expect(board.users.map((u) => u.code).sort()).toEqual(['AD', 'AS', 'JT', 'MK', 'RP']);
     expect(board.issues.map((i) => i.key).sort()).toEqual(
       ['MY-100', 'MY-101', 'MY-102', 'MY-103', 'MY-104', 'MY-105', 'MY-106', 'MY-107', 'MY-108', 'MY-109'].sort(),
     );

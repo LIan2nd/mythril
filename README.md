@@ -41,6 +41,24 @@ First request boots `bootstrapDb()` → tables + sprint #14 demo data created in
 
 Tip: co-locate regions (e.g. Vercel `sin1` ↔ Supabase ap-southeast-1).
 
+## Auth & roles (RBAC)
+
+- **No anonymous access**: every board/API route (except health/login/register) needs a session cookie (`mythril_session`, HMAC-signed, 7d; 30d with *Remember me*).
+- **Roles**: `admin` and `member`. Login is **username + password** (no email). Session check hits the DB each request, so a disabled/rejected user is logged out instantly.
+- **Self-registration is a request, not an account**: visitors submit at `/register`; status stays `pending` until an admin approves (or rejects). `auth-service` messages: pending → "Your account request is awaiting admin approval."
+- **Admin dashboard** (`/admin`, admin-only): Users (approve/reject, roles, disable, reset password, delete with assigned-issue block), Projects (create/rename/delete + per-project **member roster** — non-members get 403 on that board), Columns (dynamic Kanban headers: create/rename/reorder kind-colored; delete refuses non-empty columns).
+- **Profile** (`/profile`): rename, color, avatar upload (≤3MB; PNG/JPEG/WebP/GIF, stored as Postgres BYTEA — works on Vercel/Supabase with no disk), password change.
+
+Seeded logins (change immediately after first deploy!): `admin/admin123`, demo team `mk|jt|as|rp / mythril`.
+Bootstrap creates the admin + demo passwords with real scrypt hashes at seed time and self-heals legacy placeholder rows.
+
+### Auth-related env (in `web/.env.local`)
+
+```
+SESSION_SECRET=...        # signs session cookies; random-per-boot acceptable in dev
+COOKIE_SECURE=1|0         # default: on only for Vercel; local http://localhost stays off
+```
+
 ## Tests
 
 ```bash

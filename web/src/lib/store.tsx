@@ -11,15 +11,16 @@ import {
   useState,
 } from "react";
 import type {
+  AuthUser,
   Board,
+  BoardColumn,
   ChecklistItem,
-  ColumnId,
   CreateIssuePayload,
   Issue,
   ProjectSummary,
   UpdateIssuePayload,
 } from "../domain/types";
-import { api } from "./api";
+import { ApiError, api } from "./api";
 import {
   applyIssueFilters,
   boardReducer,
@@ -27,9 +28,22 @@ import {
   type IssueFilters,
 } from "./board-reducer";
 
-export type BoardPhase = "loading" | "ready" | "error";
+export type BoardPhase = "loading" | "ready" | "error" | "session";
+export type SessionPhase = "loading" | "ready" | "anon";
 
-interface BoardStore {
+export type SessionStatus = "loading" | "authed" | "anon";
+
+interface AuthActions {
+  login: (username: string, password: string, rememberMe: boolean) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshSession: () => Promise<void>;
+}
+
+interface BoardStore extends AuthActions {
+  sessionStatus: SessionStatus;
+  sessionPhase: SessionPhase;
+  user: AuthUser | null;
+  columns: BoardColumn[];
   projects: ProjectSummary[];
   projectKey: string | null;
   board: Board | null;
@@ -40,6 +54,7 @@ interface BoardStore {
   phase: BoardPhase;
   switching: boolean;
   loadError: string | null;
+  forbidden: boolean;
   toast: string | null;
   dialogOpen: boolean;
   filters: IssueFilters;
@@ -51,7 +66,7 @@ interface BoardStore {
   selectProject: (key: string) => Promise<void>;
   retry: () => void;
   toggleChecklist: (issueId: number, itemId: number) => Promise<void>;
-  moveIssue: (issueId: number, status: ColumnId, beforeIssueId: number | null) => Promise<void>;
+  moveIssue: (issueId: number, status: string, beforeIssueId: number | null) => Promise<void>;
   createIssue: (payload: CreateIssuePayload) => Promise<void>;
   updateIssue: (id: number, payload: UpdateIssuePayload) => Promise<void>;
   deleteIssue: (id: number) => Promise<void>;
@@ -65,26 +80,42 @@ export function useBoard(): BoardStore {
   return store;
 }
 
+export function useSession(): Pick<BoardStore, "user" | "sessionStatus" | "login" | "logout" | "refreshSession"> {
+  const store = useBoard();
+  return {
+    user: store.user,
+    sessionStatus: store.sessionStatus,
+    login: store.login,
+    logout: store.logout,
+    refreshSession: store.refreshSession,
+  };
+}
+
 function failMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
 }
 
 export function BoardProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus>("loading");
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [projectKey, setProjectKey] = useState<string | null>(null);
   const [board, setBoard] = useState<Board | null>(null);
   const [issues, dispatch] = useReducer(boardReducer, []);
-  const [phase, setPhase] = useState<BoardPhase>("loading");
+  const [phase, setPhase] = useState<BoardPhase>("session");
   const [switching, setSwitching] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [filters, setFilters] = useState<IssueFilters>({ mine: false, urgent: false, query: "" });
+  const [filters, setFilters] = useState<IssueFilters>({ mine: false, mineCode: null, urgent: false, query: "" });
   const [dark, setDark] = useState(false);
   const tempId = useRef(-1);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usersRef = useRef(board?.users ?? []);
   usersRef.current = board?.users ?? [];
+
+  const columns = useMemo<BoardColumn[]>(() => board?.columns ?? [], [board]);
 
   const flashToast = useCallback((msg: string) => {
     setToast(msg);
@@ -104,25 +135,51 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: "SET_ISSUES", issues: data.issues });
   }, []);
 
-  const boot = useCallback(async () => {
+  const loadProjects = useCallback(async () => {
     setPhase("loading");
     setLoadError(null);
+    setForbidden(false);
     try {
       const list = await api.getProjects();
       setProjects(list);
       const first = list[0];
-      if (!first) throw new Error("No projects available");
+      if (!first) {
+        setPhase("ready");
+        return;
+      }
       await loadBoard(first.key);
       setPhase("ready");
     } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setForbidden(true);
+        setPhase("ready");
+        return;
+      }
       setLoadError(failMessage(err, "Failed to load board"));
       setPhase("error");
     }
   }, [loadBoard]);
 
+  const refreshSession = useCallback(async () => {
+    try {
+      const data = await api.auth.me({ noRedirect: true });
+      setUser(data.user);
+      setSessionStatus("authed");
+      setFilters((f) => ({ ...f, mineCode: data.user.code }));
+    } catch {
+      setUser(null);
+      setSessionStatus("anon");
+    }
+  }, []);
+
   useEffect(() => {
-    void boot();
-  }, [boot]);
+    void refreshSession();
+  }, [refreshSession]);
+
+  useEffect(() => {
+    if (sessionStatus === "authed") void loadProjects();
+    else if (sessionStatus === "anon") setPhase("ready");
+  }, [sessionStatus, loadProjects]);
 
   useEffect(() => {
     try {
@@ -143,10 +200,36 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       try {
         localStorage.setItem(THEME_KEY, next ? "dark" : "light");
       } catch {
-        /* storage unavailable */
+        return next;
       }
       return next;
     });
+  }, []);
+
+  const login = useCallback(
+    async (username: string, password: string, rememberMe: boolean) => {
+      const data = await api.auth.login({ username, password, rememberMe });
+      setUser(data.user);
+      setSessionStatus("authed");
+      setFilters((f) => ({ ...f, mineCode: data.user.code }));
+      await loadProjects();
+    },
+    [loadProjects],
+  );
+
+  const logout = useCallback(async () => {
+    try {
+      await api.auth.logout();
+    } catch {
+      setUser(null);
+    }
+    setUser(null);
+    setSessionStatus("anon");
+    setBoard(null);
+    setProjects([]);
+    setProjectKey(null);
+    dispatch({ type: "SET_ISSUES", issues: [] });
+    window.location.href = "/login";
   }, []);
 
   const selectProject = useCallback(
@@ -156,7 +239,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       try {
         await loadBoard(key);
       } catch (err) {
-        flashToast(failMessage(err, `Failed to load ${key}`));
+        if (err instanceof ApiError && err.status === 403) {
+          setForbidden(true);
+        } else {
+          flashToast(failMessage(err, `Failed to load ${key}`));
+        }
       } finally {
         setSwitching(false);
       }
@@ -165,8 +252,8 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   );
 
   const retry = useCallback(() => {
-    void boot();
-  }, [boot]);
+    void loadProjects();
+  }, [loadProjects]);
 
   const toggleChecklist = useCallback(
     async (issueId: number, itemId: number) => {
@@ -187,7 +274,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   );
 
   const moveIssue = useCallback(
-    async (issueId: number, status: ColumnId, beforeIssueId: number | null) => {
+    async (issueId: number, status: string, beforeIssueId: number | null) => {
       const prev = issues;
       dispatch({ type: "MOVE", issueId, status, beforeIssueId });
       try {
@@ -206,9 +293,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       const id = tempId.current;
       tempId.current -= 1;
       const users = usersRef.current;
-      const assignee =
-        users.find((u) => u.code === payload.assignee) ??
-        ({ code: payload.assignee, name: payload.assignee, avatarColor: "yellow" } as Issue["assignee"]);
+      const assigneeCode = payload.assignee;
+      const rosterHit = users.find((u) => u.code === assigneeCode);
+      const assignee: Issue["assignee"] = rosterHit
+        ? { code: rosterHit.code ?? assigneeCode, name: rosterHit.displayName, avatarColor: rosterHit.color }
+        : ({ code: assigneeCode, name: assigneeCode, avatarColor: "yellow" } as Issue["assignee"]);
       const siblings = issues.filter((i) => i.status === payload.status);
       const position = siblings.reduce((m, i) => Math.max(m, i.position), -1) + 1;
       const optimistic: Issue = {
@@ -246,12 +335,15 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       const prev = issues.find((i) => i.id === id);
       if (!prev) return;
       const users = usersRef.current;
+      const rosterHit = payload.assignee ? users.find((u) => u.code === payload.assignee) : undefined;
       const merged: Issue = {
         ...prev,
         ...payload,
         status: payload.status ?? prev.status,
         assignee: payload.assignee
-          ? (users.find((u) => u.code === payload.assignee) ?? prev.assignee)
+          ? rosterHit
+            ? { code: rosterHit.code ?? payload.assignee, name: rosterHit.displayName, avatarColor: rosterHit.color }
+            : prev.assignee
           : prev.assignee,
       };
       dispatch({ type: "SET_ISSUE", issue: merged });
@@ -281,8 +373,13 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   );
 
   const visibleIssues = useMemo(() => applyIssueFilters(issues, filters), [issues, filters]);
+  const sessionPhase: SessionPhase = sessionStatus === "loading" ? "loading" : sessionStatus === "authed" ? "ready" : "ready";
 
   const value: BoardStore = {
+    sessionStatus,
+    sessionPhase,
+    user,
+    columns,
     projects,
     projectKey,
     board,
@@ -293,6 +390,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     phase,
     switching,
     loadError,
+    forbidden,
     toast,
     dialogOpen,
     filters,
@@ -308,6 +406,9 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     createIssue,
     updateIssue,
     deleteIssue,
+    login,
+    logout,
+    refreshSession,
   };
 
   return <BoardContext.Provider value={value}>{children}</BoardContext.Provider>;

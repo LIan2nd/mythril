@@ -1,10 +1,10 @@
-import type { ChecklistItem, ColumnId, Issue } from "../domain/types";
+import type { ChecklistItem, Issue } from "../domain/types";
 
-export const MY_CODE = "MK";
 export const THEME_KEY = "mythril-theme";
 
 export interface IssueFilters {
   mine: boolean;
+  mineCode: string | null;
   urgent: boolean;
   query: string;
 }
@@ -12,7 +12,7 @@ export interface IssueFilters {
 export function applyIssueFilters(issues: Issue[], f: IssueFilters): Issue[] {
   const q = f.query.trim().toLowerCase();
   return issues.filter((i) => {
-    if (f.mine && i.assignee.code !== MY_CODE) return false;
+    if (f.mine && f.mineCode && i.assignee.code !== f.mineCode) return false;
     if (f.urgent && !(i.priority === "HIGH" && i.type === "BUG")) return false;
     if (q && !(i.key.toLowerCase().includes(q) || i.title.toLowerCase().includes(q))) return false;
     return true;
@@ -21,7 +21,7 @@ export function applyIssueFilters(issues: Issue[], f: IssueFilters): Issue[] {
 
 export type BoardAction =
   | { type: "SET_ISSUES"; issues: Issue[] }
-  | { type: "MOVE"; issueId: number; status: ColumnId; beforeIssueId: number | null }
+  | { type: "MOVE"; issueId: number; status: string; beforeIssueId: number | null }
   | { type: "TOGGLE_ITEM"; issueId: number; itemId: number; done: boolean }
   | { type: "SET_ITEM"; issueId: number; item: ChecklistItem }
   | { type: "SET_ISSUE"; issue: Issue }

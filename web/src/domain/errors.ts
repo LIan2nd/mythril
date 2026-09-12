@@ -27,3 +27,15 @@ export class ConflictError extends AppError {
     super(message, 409, 'CONFLICT');
   }
 }
+
+export class UnauthenticatedError extends AppError {
+  constructor(message = 'Authentication required') {
+    super(message, 401, 'UNAUTHENTICATED');
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Access denied') {
+    super(message, 403, 'FORBIDDEN');
+  }
+}

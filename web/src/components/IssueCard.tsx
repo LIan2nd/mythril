@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { COLUMN_IDS, columnIndexOf, type ColumnId, type Issue } from "../domain/types";
+import { columnIndexOf, type Issue } from "../domain/types";
 import { useBoard } from "../lib/store";
 import { AvatarStack } from "./AvatarStack";
 import { ChecklistRow } from "./ChecklistRow";
@@ -27,16 +27,16 @@ function focusCard(id: number) {
 }
 
 export function IssueCard({ issue, hidden, dragging, onDragStart, onDragEnd }: IssueCardProps) {
-  const { moveIssue, visibleIssues } = useBoard();
+  const { moveIssue, visibleIssues, columns } = useBoard();
   const ref = useRef<HTMLElement>(null);
-  const statusIndex = columnIndexOf(issue.status);
+  const statusIndex = columnIndexOf(columns, issue.status);
   const done = issue.checklist.filter((c) => c.done).length;
 
   const keyboardReorder = (key: string) => {
     if (key === "ArrowLeft" || key === "ArrowRight") {
       const next = statusIndex + (key === "ArrowLeft" ? -1 : 1);
-      if (next < 0 || next >= COLUMN_IDS.length) return;
-      const target: ColumnId = COLUMN_IDS[next];
+      if (next < 0 || next >= columns.length) return;
+      const target = columns[next].key;
       void moveIssue(issue.id, target, null);
       focusCard(issue.id);
       return;
@@ -101,7 +101,7 @@ export function IssueCard({ issue, hidden, dragging, onDragStart, onDragEnd }: I
       <ProgressBar done={done} total={issue.checklist.length} />
       <div className="card-foot">
         <AvatarStack user={issue.assignee} />
-        <MoveButtons issueId={issue.id} statusIndex={statusIndex} />
+        <MoveButtons issueId={issue.id} statusIndex={statusIndex} columnCount={columns.length} />
       </div>
     </article>
   );

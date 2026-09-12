@@ -1,4 +1,6 @@
 import type { ParameterOrJSON } from 'postgres';
+import { DEFAULT_COLUMNS } from '@/domain/types';
+import { hashPassword } from '../../server/auth/crypto';
 
 export const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -11,6 +13,33 @@ CREATE TABLE IF NOT EXISTS projects (
   key text UNIQUE NOT NULL,
   name text NOT NULL
 );
+CREATE TABLE IF NOT EXISTS board_columns (
+  key text PRIMARY KEY,
+  label text NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('backlog','active','review','done')),
+  color text NOT NULL CHECK (color IN ('lavender','yellow','coral','mint','sky')),
+  position integer NOT NULL
+);
+CREATE TABLE IF NOT EXISTS project_members (
+  project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_code text NOT NULL REFERENCES users(code) ON DELETE CASCADE,
+  PRIMARY KEY (project_id, user_code)
+);
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'username') THEN ALTER TABLE users ADD COLUMN username text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_hash') THEN ALTER TABLE users ADD COLUMN password_hash text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'role') THEN ALTER TABLE users ADD COLUMN role text NOT NULL DEFAULT 'member'; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'status') THEN ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'active'; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'display_name') THEN ALTER TABLE users ADD COLUMN display_name text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'avatar') THEN ALTER TABLE users ADD COLUMN avatar bytea; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'avatar_type') THEN ALTER TABLE users ADD COLUMN avatar_type text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'avatar_updated_at') THEN ALTER TABLE users ADD COLUMN avatar_updated_at timestamptz; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id') THEN
+  CREATE SEQUENCE IF NOT EXISTS users_id_seq;
+  ALTER TABLE users ADD COLUMN id integer UNIQUE NOT NULL DEFAULT nextval('users_id_seq');
+END IF; END $$;
+UPDATE users SET username = lower(code) WHERE username IS NULL;
+UPDATE users SET display_name = name WHERE display_name IS NULL;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_username_key') THEN ALTER TABLE users ADD CONSTRAINT users_username_key UNIQUE (username); END IF; END $$;
 CREATE TABLE IF NOT EXISTS sprints (
   id serial PRIMARY KEY,
   project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -36,6 +65,7 @@ CREATE TABLE IF NOT EXISTS issues (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now()
 );
+ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_check;
 CREATE TABLE IF NOT EXISTS checklist_items (
   id serial PRIMARY KEY,
   issue_id integer NOT NULL REFERENCES issues(id) ON DELETE CASCADE,
@@ -59,6 +89,19 @@ export const SEED_USERS = [
   { code: 'AS', name: 'A. Silva', avatarColor: 'lav' },
   { code: 'RP', name: 'R. Park', avatarColor: 'coral' },
 ] as const;
+
+/** Fixed-salt scrypt hashes (params in server/auth/crypto.ts); never plaintext. */
+export const DEMO_PASSWORD_HASH = hashPassword('mythril');
+export const ADMIN_PASSWORD_HASH = hashPassword('admin123');
+
+export const ADMIN_SEED_USER = {
+  code: 'AD',
+  displayName: 'Admin',
+  avatarColor: 'sky',
+  username: 'admin',
+  role: 'admin',
+  status: 'active',
+} as const;
 
 export const SEED_PROJECTS = [
   { key: 'NEBULA-OS', name: 'NEBULA-OS' },
@@ -241,10 +284,66 @@ export function buildSeedStatements(): SeedStatement[] {
   });
 
   stmts.push({
+    sql: `INSERT INTO board_columns (key, label, kind, color, position)
+      SELECT * FROM (VALUES ${DEFAULT_COLUMNS.map(
+        (_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5}::int)`,
+      ).join(', ')}) AS v(key, label, kind, color, position)
+      WHERE NOT EXISTS (SELECT 1 FROM board_columns)
+      ON CONFLICT (key) DO NOTHING`,
+    params: DEFAULT_COLUMNS.flatMap((c) => [c.key, c.label, c.kind, c.color, c.position]),
+  });
+
+  stmts.push({
     sql: `INSERT INTO projects (key, name) VALUES ${SEED_PROJECTS.map(
       (_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`,
     ).join(', ')} ON CONFLICT (key) DO NOTHING`,
     params: SEED_PROJECTS.flatMap((p) => [p.key, p.name]),
+  });
+
+  stmts.push({
+    sql: `INSERT INTO users (code, name, avatar_color, username, password_hash, role, status, display_name)
+      SELECT $1, $2, $3, $4, $5, $6, $7, $8
+      WHERE NOT EXISTS (SELECT 1 FROM users WHERE code = $1 OR username = $4)
+      ON CONFLICT (code) DO NOTHING`,
+    params: [
+      ADMIN_SEED_USER.code,
+      ADMIN_SEED_USER.displayName,
+      ADMIN_SEED_USER.avatarColor,
+      ADMIN_SEED_USER.username,
+      ADMIN_PASSWORD_HASH,
+      ADMIN_SEED_USER.role,
+      ADMIN_SEED_USER.status,
+      ADMIN_SEED_USER.displayName,
+    ],
+  });
+
+  stmts.push({
+    sql: `UPDATE users SET username = lower(code), display_name = name, password_hash = $1
+      WHERE code = ANY($2::text[]) AND password_hash IS NULL`,
+    params: [DEMO_PASSWORD_HASH, SEED_USERS.map((u) => u.code)],
+  });
+
+  stmts.push({
+    sql: `UPDATE users SET password_hash = $1 WHERE username = $2 AND password_hash IS NULL`,
+    params: [ADMIN_PASSWORD_HASH, 'admin'],
+  });
+
+  stmts.push({
+    sql: `INSERT INTO project_members (project_id, user_code)
+      SELECT p.id, u.code FROM projects p CROSS JOIN users u
+      WHERE u.code = ANY($1::text[]) AND u.status = $2
+      ON CONFLICT (project_id, user_code) DO NOTHING`,
+    params: [SEED_USERS.map((u) => u.code), 'active'],
+  });
+
+  // Must run after the board_columns defaults above: FK creation validates existing issue rows.
+  stmts.push({
+    sql: `DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'issues_status_fkey') THEN
+        ALTER TABLE issues ADD CONSTRAINT issues_status_fkey FOREIGN KEY (status) REFERENCES board_columns(key);
+      END IF;
+    END $$`,
+    params: [],
   });
 
   for (const s of SEED_SPRINTS) {

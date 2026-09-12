@@ -1,7 +1,7 @@
-import type { IssueRepo, ProjectRepo, SprintRepo, UserRepo } from '@/domain/repositories';
-import type { Board, ProjectSummary, Sprint } from '@/domain/types';
+import type { BoardColumnRepo, IssueRepo, ProjectRepo, SprintRepo, UserRepo } from '@/domain/repositories';
+import type { AuthUser, Board, ProjectSummary, Sprint } from '@/domain/types';
 import { sortIssuesForBoard } from '@/domain/types';
-import { NotFoundError } from '@/domain/errors';
+import { requireMembership, requireProjectByKey } from './guards';
 
 const DAY_MS = 86_400_000;
 
@@ -16,13 +16,17 @@ export interface BoardServiceDeps {
   sprints: SprintRepo;
   users: UserRepo;
   issues: IssueRepo;
+  columns: BoardColumnRepo;
 }
 
 export class BoardService {
   constructor(private readonly deps: BoardServiceDeps) {}
 
-  async listProjectSummaries(): Promise<ProjectSummary[]> {
-    const projects = await this.deps.projects.list();
+  async listProjectSummaries(user: AuthUser): Promise<ProjectSummary[]> {
+    const projects =
+      user.role === 'admin'
+        ? await this.deps.projects.list()
+        : await this.deps.projects.listForUser(user.code ?? '');
     return Promise.all(
       projects.map(async (p) => {
         const sprint = await this.deps.sprints.getActiveForProject(p.id);
@@ -41,15 +45,20 @@ export class BoardService {
     );
   }
 
-  async getBoard(projectKey: string): Promise<Board> {
-    const project = await this.deps.projects.getByKey(projectKey);
-    if (!project) throw new NotFoundError(`Project ${projectKey} not found`);
-    const [rawSprint, users, issues] = await Promise.all([
+  async getBoard(projectKey: string, user: AuthUser): Promise<Board> {
+    const project = await requireProjectByKey(this.deps.projects, projectKey);
+    await requireMembership(this.deps.projects, project.id, user);
+    const [rawSprint, columns, issues, memberCodes] = await Promise.all([
       this.deps.sprints.getActiveForProject(project.id),
-      this.deps.users.list(),
+      this.deps.columns.list(),
       this.deps.issues.listByProject(project.id),
+      user.role === 'admin' ? Promise.resolve<string[] | null>(null) : this.deps.projects.memberCodes(project.id),
     ]);
+    const users =
+      memberCodes === null
+        ? await this.deps.users.listAuth()
+        : await this.deps.users.listAuthByCodes(memberCodes);
     const sprint: Sprint | null = rawSprint ? { ...rawSprint, daysLeft: daysLeftFrom(rawSprint.endsAt) } : null;
-    return { project, sprint, users, issues: sortIssuesForBoard(issues) };
+    return { project, sprint, users, columns, issues: sortIssuesForBoard(issues, columns) };
   }
 }
