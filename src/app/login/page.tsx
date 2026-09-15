@@ -51,10 +51,10 @@ function LoginCard() {
   return (
     <main className="auth-wrap">
       <form className="auth-card" onSubmit={submit} aria-label="Sign in" noValidate>
-        <div className="auth-logo">
+        <Link href="/" className="auth-logo">
           <span className="logo-mark">M</span>
           <span>MYTHRIL</span>
-        </div>
+        </Link>
         <h1>Sign in</h1>
         {error ? (
           <div className="auth-error" role="alert">

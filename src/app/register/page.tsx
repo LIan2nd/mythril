@@ -48,10 +48,10 @@ export default function RegisterPage() {
     return (
       <main className="auth-wrap">
         <div className="auth-card" role="status">
-          <div className="auth-logo">
+          <Link href="/" className="auth-logo">
             <span className="logo-mark">M</span>
             <span>MYTHRIL</span>
-          </div>
+          </Link>
           <h1>Account requested</h1>
           <p className="auth-note">An admin needs to approve it before you can sign in.</p>
           <Link className="btn-chunk btn-new" href="/login">
@@ -65,10 +65,10 @@ export default function RegisterPage() {
   return (
     <main className="auth-wrap">
       <form className="auth-card" onSubmit={submit} aria-label="Request access" noValidate>
-        <div className="auth-logo">
+        <Link href="/" className="auth-logo">
           <span className="logo-mark">M</span>
           <span>MYTHRIL</span>
-        </div>
+        </Link>
         <h1>Request access</h1>
         {error ? (
           <div className="auth-error" role="alert">

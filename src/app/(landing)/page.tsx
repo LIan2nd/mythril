@@ -94,19 +94,18 @@ export default function LandingPage() {
       {/* ── Nav ── */}
       <header className="landing-nav">
         <div className="landing-nav-inner">
-          <div className="logo" aria-label="Mythril">
+          <Link href="/" className="logo" aria-label="Mythril">
             <span className="logo-mark">M</span> MYTHRIL
-          </div>
+          </Link>
           <div className="landing-nav-actions">
-            {mounted && (
-              <button
-                className="landing-theme-toggle"
-                onClick={toggle}
-                aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-              >
-                {dark ? "☀" : "◑"}
-              </button>
-            )}
+            <button
+              type="button"
+              className="landing-theme-toggle"
+              onClick={toggle}
+              aria-label={mounted && dark ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {mounted ? (dark ? "☀" : "◑") : "◑"}
+            </button>
             <Link href="/login" className="landing-btn landing-btn-ghost">
               Sign In
             </Link>

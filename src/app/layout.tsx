@@ -1,6 +1,16 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#FFE600" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+  ],
+};
+
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://mythril.dev"),
   title: {
@@ -65,15 +75,6 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
-};
-
-export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#FFE600" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
-  ],
-  width: "device-width",
-  initialScale: 1,
 };
 
 const jsonLd = {
