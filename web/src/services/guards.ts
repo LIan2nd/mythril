@@ -16,8 +16,8 @@ export async function requireMembership(projects: ProjectRepo, projectId: number
   throw new ForbiddenError(NOT_A_MEMBER_MESSAGE);
 }
 
-export async function requireColumn(columns: BoardColumnRepo, key: string, field = 'status'): Promise<BoardColumn> {
-  const column = await columns.getByKey(key);
+export async function requireColumn(columns: BoardColumnRepo, projectId: number, key: string, field = 'status'): Promise<BoardColumn> {
+  const column = await columns.getByKey(projectId, key);
   if (!column) throw new ValidationError(`Unknown ${field} "${key}"`);
   return column;
 }
