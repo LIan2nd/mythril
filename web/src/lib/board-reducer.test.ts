@@ -51,6 +51,22 @@ describe("boardReducer", () => {
     expect(next[0].checklist[0].done).toBe(true);
   });
 
+  it("appends checklist items with ADD_ITEM", () => {
+    const state = [
+      fakeIssue({
+        id: 1,
+        checklist: [{ id: 10, text: "Scope", done: false, position: 0 }],
+      }),
+    ];
+    const next = boardReducer(state, {
+      type: "ADD_ITEM",
+      issueId: 1,
+      item: { id: 11, text: "Write docs", done: false, position: 1 },
+    });
+    expect(next[0].checklist).toHaveLength(2);
+    expect(next[0].checklist[1].text).toBe("Write docs");
+  });
+
   it("reconciles optimistic creates by temp id", () => {
     const temp = fakeIssue({ id: -1, key: "···" });
     const created = fakeIssue({ id: 110, key: "MY-110" });

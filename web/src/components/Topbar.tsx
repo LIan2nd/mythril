@@ -26,9 +26,9 @@ export function Topbar() {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="logo">
+        <Link href="/" className="logo" aria-label="Mythril home">
           <span className="logo-mark">M</span> MYTHRIL
-        </div>
+        </Link>
         <ProjectSwitcher />
         <SprintChip />
         <div className="topbar-actions">

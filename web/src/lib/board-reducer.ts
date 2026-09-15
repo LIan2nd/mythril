@@ -1,6 +1,7 @@
 import type { ChecklistItem, Issue } from "../domain/types";
 
 export const THEME_KEY = "mythril-theme";
+export const ACTIVE_PROJECT_KEY = "mythril-active-project";
 
 export interface IssueFilters {
   mine: boolean;
@@ -24,6 +25,7 @@ export type BoardAction =
   | { type: "MOVE"; issueId: number; status: string; beforeIssueId: number | null }
   | { type: "TOGGLE_ITEM"; issueId: number; itemId: number; done: boolean }
   | { type: "SET_ITEM"; issueId: number; item: ChecklistItem }
+  | { type: "ADD_ITEM"; issueId: number; item: ChecklistItem }
   | { type: "SET_ISSUE"; issue: Issue }
   | { type: "CREATE"; issue: Issue }
   | { type: "RECONCILE_CREATE"; tempId: number; issue: Issue }
@@ -58,6 +60,12 @@ export function boardReducer(state: Issue[], action: BoardAction): Issue[] {
         i.id !== action.issueId
           ? i
           : { ...i, checklist: i.checklist.map((c) => (c.id === action.item.id ? action.item : c)) },
+      );
+    case "ADD_ITEM":
+      return state.map((i) =>
+        i.id !== action.issueId
+          ? i
+          : { ...i, checklist: [...i.checklist, action.item] },
       );
     case "SET_ISSUE":
       return state.map((i) => (i.id === action.issue.id ? action.issue : i));
