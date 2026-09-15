@@ -1,5 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError } from '@/domain/errors';
-import type { BoardColumnRepo, IssueRepo, ProjectRepo, UserRepo } from '@/domain/repositories';
+import type { BoardColumnRepo, IssueRepo, ProjectRepo, SprintRepo, UserRepo } from '@/domain/repositories';
 import type {
   AdminCreateUserPayload,
   AdminProjectDetail,
@@ -12,14 +12,16 @@ import type {
   UpdateColumnPayload,
   UserStatus,
 } from '@/domain/types';
+import { DEFAULT_COLUMNS } from '@/domain/types';
 import { hashPassword } from '@/server/auth/crypto';
-import { codeSlug, pickUniqueCode, slugifyLabel } from './guards';
+import { codeSlug, pickUniqueCode, requireColumn, slugifyLabel } from './guards';
 
 export interface AdminServiceDeps {
   users: UserRepo;
   projects: ProjectRepo;
   issues: IssueRepo;
   columns: BoardColumnRepo;
+  sprints?: SprintRepo;
 }
 
 export class AdminService {
@@ -98,9 +100,36 @@ export class AdminService {
     return details;
   }
 
-  async createProject(input: { key: string; name: string }): Promise<Project> {
+  async createProject(input: { key: string; name: string }): Promise<AdminProjectDetail> {
     if (await this.deps.projects.getByKey(input.key)) throw new ConflictError(`Project key ${input.key} already exists`);
-    return this.deps.projects.create(input);
+    const project = await this.deps.projects.create(input);
+    for (const col of DEFAULT_COLUMNS) {
+      await this.deps.columns.create(project.id, {
+        key: col.key,
+        label: col.label,
+        kind: col.kind,
+        color: col.color,
+        beforeKey: null,
+      });
+    }
+    if (this.deps.sprints) {
+      const now = new Date();
+      const end = new Date(now.getTime() + 14 * 86_400_000);
+      const startsAt = now.toISOString().slice(0, 10);
+      const endsAt = end.toISOString().slice(0, 10);
+      await this.deps.sprints.upsertActiveForProject(project.id, {
+        number: 1,
+        title: 'Forge the sprint. Ship like legend.',
+        kicker: 'Active sprint',
+        startsAt,
+        endsAt,
+      });
+    }
+    return {
+      ...project,
+      members: [],
+      issueCount: 0,
+    };
   }
 
   async renameProject(key: string, patch: { key?: string; name?: string }): Promise<Project> {
@@ -111,15 +140,16 @@ export class AdminService {
     return this.deps.projects.update(project.id, patch);
   }
 
-  async deleteProject(key: string): Promise<void> {
+  async deleteProject(key: string, options?: { cascade?: boolean }): Promise<void> {
     const project = await this.getProjectOrThrow(key);
-    if ((await this.deps.projects.countIssues(project.id)) > 0) {
-      throw new ConflictError('Project still has issues. Move or delete them first.');
+    const issueCount = await this.deps.projects.countIssues(project.id);
+    if (issueCount > 0 && !options?.cascade) {
+      throw new ConflictError(`Project still has ${issueCount} issue(s). Confirm cascade delete or move them first.`);
     }
     await this.deps.projects.remove(project.id);
   }
 
-  async setProjectMembers(key: string, codes: string[]): Promise<AdminProjectDetail> {
+  async setProjectMembers(key: string, codes: string[], actor?: AuthUser): Promise<AdminProjectDetail> {
     const project = await this.getProjectOrThrow(key);
     const unique = [...new Set(codes)];
     const users = await this.deps.users.listAuth();
@@ -129,6 +159,31 @@ export class AdminService {
       if (!user) throw new ValidationError(`Unknown member code "${code}"`);
       if (user.status !== 'active') throw new ValidationError(`"${code}" is not an active user`);
     }
+
+    const currentCodes = await this.deps.projects.memberCodes(project.id);
+    const removedCodes = currentCodes.filter((c) => !unique.includes(c));
+
+    if (removedCodes.length > 0) {
+      const issues = await this.deps.issues.listByProject(project.id);
+      const issuesNeedingReassign = issues.filter((i) => i.assignee && removedCodes.includes(i.assignee.code));
+
+      if (issuesNeedingReassign.length > 0) {
+        let targetCode: string | null = null;
+        if (actor?.code && unique.includes(actor.code)) {
+          targetCode = actor.code;
+        } else if (unique.length > 0) {
+          const sorted = [...unique].sort();
+          targetCode = sorted[0];
+        }
+
+        if (!targetCode) {
+          throw new ConflictError('Cannot remove last member while issues are assigned');
+        }
+
+        await this.deps.issues.reassign(project.id, removedCodes, targetCode);
+      }
+    }
+
     await this.deps.projects.setMembers(project.id, unique);
     return {
       ...project,
@@ -137,39 +192,49 @@ export class AdminService {
     };
   }
 
-  async createColumn(input: CreateColumnPayload): Promise<BoardColumn> {
+  async listColumns(projectKey: string): Promise<BoardColumn[]> {
+    const project = await this.getProjectOrThrow(projectKey);
+    return this.deps.columns.list(project.id);
+  }
+
+  async createColumn(projectKey: string, input: CreateColumnPayload): Promise<BoardColumn> {
+    const project = await this.getProjectOrThrow(projectKey);
     if (input.beforeKey) {
-      const anchor = await this.deps.columns.getByKey(input.beforeKey);
+      const anchor = await this.deps.columns.getByKey(project.id, input.beforeKey);
       if (!anchor) throw new ValidationError(`Unknown column "${input.beforeKey}"`);
     }
     const base = slugifyLabel(input.label);
     let candidate = base;
-    for (let n = 1; (await this.deps.columns.getByKey(candidate)); n += 1) {
+    for (let n = 1; (await this.deps.columns.getByKey(project.id, candidate)); n += 1) {
       candidate = `${base}-${n}`;
     }
-    return this.deps.columns.create({ key: candidate, label: input.label, kind: input.kind, color: input.color, beforeKey: input.beforeKey ?? null });
+    return this.deps.columns.create(project.id, { key: candidate, label: input.label, kind: input.kind, color: input.color, beforeKey: input.beforeKey ?? null });
   }
 
-  async updateColumn(key: string, patch: UpdateColumnPayload): Promise<BoardColumn> {
-    return this.deps.columns.update(key, patch);
+  async updateColumn(projectKey: string, key: string, patch: UpdateColumnPayload): Promise<BoardColumn> {
+    const project = await this.getProjectOrThrow(projectKey);
+    await requireColumn(this.deps.columns, project.id, key);
+    return this.deps.columns.update(project.id, key, patch);
   }
 
-  async reorderColumns(payload: ReorderColumnsPayload): Promise<BoardColumn[]> {
-    const current = await this.deps.columns.list();
+  async reorderColumns(projectKey: string, payload: ReorderColumnsPayload): Promise<BoardColumn[]> {
+    const project = await this.getProjectOrThrow(projectKey);
+    const current = await this.deps.columns.list(project.id);
     const same =
       payload.orderedKeys.length === current.length &&
       [...current].map((c) => c.key).sort().join() === [...payload.orderedKeys].sort().join();
     if (!same) throw new ValidationError('orderedKeys must list every column key exactly once');
-    return this.deps.columns.reorder(payload.orderedKeys);
+    return this.deps.columns.reorder(project.id, payload.orderedKeys);
   }
 
-  async deleteColumn(key: string): Promise<void> {
-    const column = await this.deps.columns.getByKey(key);
+  async deleteColumn(projectKey: string, key: string): Promise<void> {
+    const project = await this.getProjectOrThrow(projectKey);
+    const column = await this.deps.columns.getByKey(project.id, key);
     if (!column) throw new NotFoundError(`Column ${key} not found`);
-    if ((await this.deps.issues.countByStatus(key)) > 0) {
+    if ((await this.deps.issues.countByProjectAndStatus(project.id, key)) > 0) {
       throw new ConflictError(`Column "${column.label}" still has issues. Move them first.`);
     }
-    await this.deps.columns.remove(key);
+    await this.deps.columns.remove(project.id, key);
   }
 
   private async getUserOrThrow(id: number): Promise<AuthUser> {

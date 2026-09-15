@@ -65,8 +65,18 @@ export interface ProjectRepo {
   setMembers(projectId: number, codes: string[]): Promise<void>;
 }
 
+export interface UpsertSprintInput {
+  number: number;
+  title?: string;
+  kicker?: string;
+  startsAt: string;
+  endsAt: string;
+  isActive?: boolean;
+}
+
 export interface SprintRepo {
   getActiveForProject(projectId: number): Promise<Sprint | null>;
+  upsertActiveForProject(projectId: number, input: UpsertSprintInput): Promise<Sprint>;
 }
 
 export interface UserRepo {
@@ -91,19 +101,26 @@ export interface AuthRepo {
 }
 
 export interface BoardColumnRepo {
-  list(): Promise<BoardColumn[]>;
-  getByKey(key: string): Promise<BoardColumn | null>;
+  list(projectId: number): Promise<BoardColumn[]>;
+  getByKey(projectId: number, key: string): Promise<BoardColumn | null>;
   /** Inserts at beforeKey's position (shifting following columns) or appends when null. */
-  create(input: {
-    key: string;
-    label: string;
-    kind: ColumnKind;
-    color: ColumnColor;
-    beforeKey: string | null;
-  }): Promise<BoardColumn>;
-  update(key: string, patch: { label?: string; kind?: ColumnKind; color?: ColumnColor }): Promise<BoardColumn>;
-  reorder(orderedKeys: string[]): Promise<BoardColumn[]>;
-  remove(key: string): Promise<void>;
+  create(
+    projectId: number,
+    input: {
+      key: string;
+      label: string;
+      kind: ColumnKind;
+      color: ColumnColor;
+      beforeKey: string | null;
+    },
+  ): Promise<BoardColumn>;
+  update(
+    projectId: number,
+    key: string,
+    patch: { label?: string; kind?: ColumnKind; color?: ColumnColor },
+  ): Promise<BoardColumn>;
+  reorder(projectId: number, orderedKeys: string[]): Promise<BoardColumn[]>;
+  remove(projectId: number, key: string): Promise<void>;
 }
 
 export interface IssueRepo {
@@ -118,7 +135,9 @@ export interface IssueRepo {
   /** 'MY-<n>' where n = max numeric suffix across ALL projects + 1 (global seq, export behavior). */
   generateKey(projectKey: string): Promise<string>;
   countByStatus(status: string): Promise<number>;
+  countByProjectAndStatus(projectId: number, status: string): Promise<number>;
   countByAssignee(userCode: string): Promise<number>;
+  reassign(projectId: number, fromCodes: string[], toCode: string): Promise<number>;
 }
 
 export interface ChecklistRepo {

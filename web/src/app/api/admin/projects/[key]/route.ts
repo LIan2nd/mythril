@@ -23,7 +23,8 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ key: str
     const { key } = await ctx.params;
     const services = getServices();
     await requireAdmin(req, services.session);
-    await services.admin.deleteProject(decodeURIComponent(key));
+    const cascade = req.nextUrl.searchParams.get('cascade') === 'true';
+    await services.admin.deleteProject(decodeURIComponent(key), { cascade });
     return noContent();
   } catch (err) {
     return fail(err);

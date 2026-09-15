@@ -73,8 +73,12 @@ export class PostgresProjectRepo implements ProjectRepo {
   }
 
   async remove(id: number): Promise<void> {
-    const rows = await this.sql`delete from projects where id = ${id} returning id`;
-    if (rows.length === 0) throw new NotFoundError(`Project ${id} not found`);
+    await this.sql.begin(async ($: unknown) => {
+      const tx = $ as Sql;
+      await tx`delete from issues where project_id = ${id}`;
+      const rows = await tx`delete from projects where id = ${id} returning id`;
+      if (rows.length === 0) throw new NotFoundError(`Project ${id} not found`);
+    });
   }
 
   async countIssues(projectId: number): Promise<number> {
