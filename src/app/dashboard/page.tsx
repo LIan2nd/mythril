@@ -1,19 +1,19 @@
 "use client";
 
-import { BoardProvider, useBoard } from "../lib/store";
-import { Topbar } from "../components/Topbar";
-import { SprintBanner } from "../components/SprintBanner";
-import { FilterBar } from "../components/FilterBar";
-import { Board } from "../components/Board";
-import { NewIssueDialog } from "../components/NewIssueDialog";
-import { EditIssueDialog } from "../components/EditIssueDialog";
-import { DeleteIssueDialog } from "../components/DeleteIssueDialog";
-import { SprintSettingsDialog } from "../components/SprintSettingsDialog";
-import { AddColumnDialog, EditColumnDialog } from "../components/ColumnDialogs";
-import { Footer } from "../components/Footer";
-import { LoadingSkeleton } from "../components/LoadingSkeleton";
-import { ErrorPanel } from "../components/ErrorPanel";
-import { Toast } from "../components/Toast";
+import { BoardProvider, useBoard } from "../../lib/store";
+import { Topbar } from "../../components/Topbar";
+import { SprintBanner } from "../../components/SprintBanner";
+import { FilterBar } from "../../components/FilterBar";
+import { Board } from "../../components/Board";
+import { NewIssueDialog } from "../../components/NewIssueDialog";
+import { EditIssueDialog } from "../../components/EditIssueDialog";
+import { DeleteIssueDialog } from "../../components/DeleteIssueDialog";
+import { SprintSettingsDialog } from "../../components/SprintSettingsDialog";
+import { AddColumnDialog, EditColumnDialog } from "../../components/ColumnDialogs";
+import { Footer } from "../../components/Footer";
+import { LoadingSkeleton } from "../../components/LoadingSkeleton";
+import { ErrorPanel } from "../../components/ErrorPanel";
+import { Toast } from "../../components/Toast";
 
 function SessionSplash() {
   return (

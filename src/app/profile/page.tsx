@@ -166,7 +166,7 @@ function ProfilePage() {
       <Topbar />
       <main className="wrap" id="content">
         <p className="kicker">
-          <Link href="/">Board</Link> / Profile
+          <Link href="/dashboard">Board</Link> / Profile
         </p>
         <div className="profile-grid">
           <section className="card" aria-label="Identity">

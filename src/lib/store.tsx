@@ -276,7 +276,7 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     } else if (sessionStatus === "anon") {
       if (typeof window !== "undefined") {
         const p = window.location.pathname;
-        if (p !== "/login" && p !== "/register") {
+        if (p !== "/login" && p !== "/register" && p !== "/") {
           const next = sanitizeNext(window.location.pathname + window.location.search);
           window.location.href = `/login?next=${encodeURIComponent(next)}`;
         }

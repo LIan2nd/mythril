@@ -156,7 +156,7 @@ function AdminPage() {
   }, [sessionStatus, user, refreshSession]);
 
   useEffect(() => {
-    if (user && user.role !== "admin") router.push("/");
+    if (user && user.role !== "admin") router.push("/dashboard");
   }, [user, router]);
 
   useEffect(() => {
@@ -241,7 +241,7 @@ function AdminPage() {
       <Topbar />
       <main className="wrap" id="content">
         <p className="kicker">
-          <Link href="/">Board</Link> / Admin
+          <Link href="/dashboard">Board</Link> / Admin
         </p>
         <h1>Admin panel</h1>
         <div className="adm-tabs" role="tablist" aria-label="Admin sections">

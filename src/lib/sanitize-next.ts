@@ -9,16 +9,16 @@
  * - Falls back to '/' if invalid or empty
  */
 export function sanitizeNext(raw: string | null | undefined): string {
-  if (!raw || typeof raw !== 'string') return '/';
+  if (!raw || typeof raw !== 'string') return '/dashboard';
   const trimmed = raw.trim();
   if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('\\')) {
-    return '/';
+    return '/dashboard';
   }
 
   // Check if there is a colon before the query string or hash (scheme injection attempt)
   const pathPart = trimmed.split(/[?#]/, 1)[0];
   if (pathPart.includes(':')) {
-    return '/';
+    return '/dashboard';
   }
 
   return trimmed;

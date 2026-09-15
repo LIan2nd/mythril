@@ -26,7 +26,7 @@ export function Topbar() {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <Link href="/" className="logo" aria-label="Mythril home">
+        <Link href="/dashboard" className="logo" aria-label="Mythril home">
           <span className="logo-mark">M</span> MYTHRIL
         </Link>
         <ProjectSwitcher />

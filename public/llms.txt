@@ -7,9 +7,9 @@ MYTHRIL is a modern developer-centric sprint management and Kanban application b
 
 ## Key Capabilities
 - **Kanban Workflow**: Drag-and-drop issue cards, keyboard moves, subtask checklist items, and real-time status updates.
-- **In-Place Stage Management**: Reorder columns (`[←]`, `[→]`), create custom stages (`+ ADD COLUMN`), and configure labels/colors/kinds directly on the dashboard (`/`) without navigating away to an admin console.
+- **In-Place Stage Management**: Reorder columns (`[←]`, `[→]`), create custom stages (`+ ADD COLUMN`), and configure labels/colors/kinds directly on the dashboard (`/dashboard`) without navigating away to an admin console.
 - **Interactive Sprint Settings**: Configure sprint duration presets (1-4 weeks), custom start and end date pickers, sprint goals, and real-time sprint health metrics (open issues, high-severity bugs, completion progress).
-- **Multi-Project System**: Global active project state persistence in `localStorage` across page transitions (`/`, `/admin`, `/profile`) and full browser reloads.
+- **Multi-Project System**: Global active project state persistence in `localStorage` across page transitions (`/dashboard`, `/admin`, `/profile`) and full browser reloads.
 - **Role-Based Access Control (RBAC)**: Admin dashboard with user approval requests, password resets, member assignment rosters, and 2-step cascade safety warnings.
 - **Form & Input Experience**: Accessible custom select dropdowns, granular per-field validation without premature error banners on keyboard navigation, and instant dark/light mode toggle.
 
@@ -20,7 +20,8 @@ MYTHRIL is a modern developer-centric sprint management and Kanban application b
 - Testing: Vitest unit test suite (60+ tests) and PostgreSQL database integration tests
 
 ## Routes
-- `/`: Main interactive Kanban board, sprint banner, and in-place column controls
+- `/`: Landing page — product overview, features, and call to action
+- `/dashboard`: Main interactive Kanban board, sprint banner, and in-place column controls
 - `/login`: Session authentication with remember-me support
 - `/register`: User onboarding with administrative approval request flow
 - `/profile`: User profile management, password change, and custom avatar upload
