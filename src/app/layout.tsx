@@ -12,7 +12,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://mythril.dev"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://mythril.liand.web.id"),
   title: {
     default: "MYTHRIL · Neo-Brutalist Sprint Kanban",
     template: "%s | MYTHRIL",
@@ -81,7 +81,7 @@ const jsonLd = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
   name: "MYTHRIL",
-  url: "https://mythril.dev",
+  url: process.env.NEXT_PUBLIC_APP_URL || "https://mythril.liand.web.id",
   description:
     "High-velocity Neo-Brutalist Sprint Kanban & Project Management dashboard with live sprint tracking, RBAC, and in-place stage reordering.",
   applicationCategory: "ProjectManagementApplication",
