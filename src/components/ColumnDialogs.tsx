@@ -106,6 +106,7 @@ export function AddColumnDialog() {
               <label htmlFor="addColumnLabel">Column Label</label>
               <input
                 id="addColumnLabel"
+                className="input"
                 type="text"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
@@ -266,6 +267,7 @@ export function EditColumnDialog() {
               <label htmlFor="editColumnLabel">Column Label</label>
               <input
                 id="editColumnLabel"
+                className="input"
                 type="text"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
