@@ -51,7 +51,7 @@ export function getServices(): Services {
       checklist: new ChecklistService({ projects, issues, checklist }),
       auth: new AuthService({ auth, users }),
       profile: new ProfileService({ auth, users }),
-      admin: new AdminService({ users, projects, issues, columns }),
+      admin: new AdminService({ users, projects, issues, columns, sprints }),
       session: { authRepo: auth },
     };
   }

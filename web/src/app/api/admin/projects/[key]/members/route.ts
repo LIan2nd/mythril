@@ -10,9 +10,9 @@ export async function PUT(req: NextRequest, ctx: { params: Promise<{ key: string
   try {
     const { key } = await ctx.params;
     const services = getServices();
-    await requireAdmin(req, services.session);
+    const actor = await requireAdmin(req, services.session);
     const { codes } = parse(projectMembersSchema, await readBody(req));
-    return ok(await services.admin.setProjectMembers(decodeURIComponent(key), codes), 200, 'Members updated');
+    return ok(await services.admin.setProjectMembers(decodeURIComponent(key), codes, actor), 200, 'Members updated');
   } catch (err) {
     return fail(err);
   }

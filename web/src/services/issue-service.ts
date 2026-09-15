@@ -33,13 +33,13 @@ export class IssueService {
 
     const project = await requireProjectByKey(this.deps.projects, projectKey);
     await requireMembership(this.deps.projects, project.id, actor);
-    await requireColumn(this.deps.columns, payload.status);
+    await requireColumn(this.deps.columns, project.id, payload.status);
     await requireAssigneeIsMember(this.deps.projects, this.deps.users, project.id, payload.assignee);
 
     return this.deps.issues.create({
       projectId: project.id,
       title: payload.title.trim(),
-      description: payload.description?.trim() || `Created from + New Issue · ${new Date().toLocaleDateString('en-GB')}`,
+      description: payload.description !== undefined ? payload.description.trim() : `Created from + New Issue · ${new Date().toLocaleDateString('en-GB')}`,
       priority: payload.priority,
       type: payload.type,
       status: payload.status,
@@ -51,7 +51,7 @@ export class IssueService {
   async updateIssue(id: number, patch: UpdateIssuePayload, actor: AuthUser): Promise<Issue> {
     if (patch.title !== undefined) validateTitle(patch.title);
     const issue = await this.loadForActor(id, actor);
-    if (patch.status !== undefined) await requireColumn(this.deps.columns, patch.status);
+    if (patch.status !== undefined) await requireColumn(this.deps.columns, issue.projectId, patch.status);
     if (patch.assignee !== undefined && patch.assignee !== issue.assignee.code) {
       await requireAssigneeIsMember(this.deps.projects, this.deps.users, issue.projectId, patch.assignee);
     }
@@ -65,11 +65,11 @@ export class IssueService {
 
   async moveIssue(id: number, payload: MoveIssuePayload, actor: AuthUser): Promise<Issue[]> {
     const issue = await this.loadForActor(id, actor);
-    await requireColumn(this.deps.columns, payload.status);
+    await requireColumn(this.deps.columns, issue.projectId, payload.status);
     await this.deps.issues.move(id, payload.status, payload.beforeIssueId);
     const [issues, columns] = await Promise.all([
       this.deps.issues.listByProject(issue.projectId),
-      this.deps.columns.list(),
+      this.deps.columns.list(issue.projectId),
     ]);
     return sortIssuesForBoard(issues, columns);
   }

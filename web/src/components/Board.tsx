@@ -6,7 +6,16 @@ import { useBoard } from "../lib/store";
 import { BoardColumnView } from "./BoardColumn";
 
 export function Board() {
-  const { issues, visibleIssues, moveIssue, columns } = useBoard();
+  const {
+    issues,
+    visibleIssues,
+    moveIssue,
+    columns,
+    user,
+    reorderColumns,
+    setAddColumnOpen,
+  } = useBoard();
+  const isAdmin = user?.role === "admin";
   const [dragId, setDragId] = useState<number | null>(null);
   const dragEl = useRef<HTMLElement | null>(null);
 
@@ -28,42 +37,97 @@ export function Board() {
     return map;
   }, [issues, columns]);
 
+  const handleMoveColumn = (idx: number, dir: -1 | 1) => {
+    const targetIdx = idx + dir;
+    if (targetIdx < 0 || targetIdx >= columns.length) return;
+    const nextKeys = [...columns.map((c) => c.key)];
+    const tmp = nextKeys[idx];
+    nextKeys[idx] = nextKeys[targetIdx];
+    nextKeys[targetIdx] = tmp;
+    void reorderColumns(nextKeys);
+  };
+
+  const totalSlots = columns.length + (isAdmin ? 1 : 0);
+
   return (
-    <section className="board" aria-label="Kanban board" style={columns.length ? { gridTemplateColumns: `repeat(${columns.length},minmax(0,1fr))` } : undefined}>
-      {columns.map((col: BoardColumn) => (
-        <BoardColumnView
-          key={col.key}
-          column={col}
-          issues={byColumn.get(col.key) ?? []}
-          hiddenIds={hiddenIds}
-          dragId={dragId}
-          onDragStart={(id, el) => {
-            setDragId(id);
-            dragEl.current = el;
-            requestAnimationFrame(() => el.classList.add("dragging"));
-          }}
-          onDragEnd={() => {
-            dragEl.current?.classList.remove("dragging");
-            dragEl.current = null;
-            setDragId(null);
-            document
-              .querySelectorAll(".col-body.dragover")
-              .forEach((z) => z.classList.remove("dragover"));
-          }}
-          onDropCard={(targetColumn, beforeIssueId) => {
-            const id = dragId;
-            dragEl.current?.classList.remove("dragging");
-            dragEl.current = null;
-            setDragId(null);
-            if (id == null) return;
-            const list = byColumn.get(targetColumn) ?? [];
-            const normalized =
-              beforeIssueId === id ? nextSiblingOf(id, list) : beforeIssueId;
-            void moveIssue(id, targetColumn, normalized);
-          }}
-        />
-      ))}
-    </section>
+    <div className="board-wrap">
+      <section
+        className="board"
+        aria-label="Kanban board"
+        style={
+          totalSlots
+            ? {
+                gridTemplateColumns:
+                  totalSlots <= 4
+                    ? `repeat(${totalSlots}, minmax(330px, 1fr))`
+                    : `repeat(${totalSlots}, 340px)`,
+              }
+            : undefined
+        }
+      >
+        {columns.map((col: BoardColumn, idx: number) => (
+          <BoardColumnView
+            key={col.key}
+            column={col}
+            index={idx}
+            totalColumns={columns.length}
+            issues={byColumn.get(col.key) ?? []}
+            hiddenIds={hiddenIds}
+            dragId={dragId}
+            onMoveColumn={handleMoveColumn}
+            onDragStart={(id, el) => {
+              setDragId(id);
+              dragEl.current = el;
+              requestAnimationFrame(() => el.classList.add("dragging"));
+            }}
+            onDragEnd={() => {
+              dragEl.current?.classList.remove("dragging");
+              dragEl.current = null;
+              setDragId(null);
+              document
+                .querySelectorAll(".col-body.dragover")
+                .forEach((z) => z.classList.remove("dragover"));
+            }}
+            onDropCard={(targetColumn, beforeIssueId) => {
+              const id = dragId;
+              dragEl.current?.classList.remove("dragging");
+              dragEl.current = null;
+              setDragId(null);
+              if (id == null) return;
+              const list = byColumn.get(targetColumn) ?? [];
+              const normalized =
+                beforeIssueId === id ? nextSiblingOf(id, list) : beforeIssueId;
+              void moveIssue(id, targetColumn, normalized);
+            }}
+          />
+        ))}
+
+        {isAdmin && (
+          <div className="col-add-card" role="region" aria-label="Add new column">
+            <button
+              type="button"
+              className="btn-chunk btn-new"
+              style={{ width: "100%", justifyContent: "center", minHeight: 44 }}
+              onClick={() => setAddColumnOpen(true)}
+            >
+              + ADD COLUMN
+            </button>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 11,
+                fontFamily: "var(--font-mono)",
+                color: "var(--muted)",
+                textTransform: "uppercase",
+                letterSpacing: ".06em",
+              }}
+            >
+              Admin · Stage Management
+            </p>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 

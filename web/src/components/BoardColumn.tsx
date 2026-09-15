@@ -10,9 +10,12 @@ interface BoardColumnViewProps {
   issues: Issue[];
   hiddenIds: Set<number>;
   dragId: number | null;
+  index?: number;
+  totalColumns?: number;
   onDragStart: (id: number, el: HTMLElement) => void;
   onDragEnd: () => void;
   onDropCard: (targetColumn: string, beforeIssueId: number | null) => void;
+  onMoveColumn?: (idx: number, dir: -1 | 1) => void;
 }
 
 export function BoardColumnView({
@@ -20,11 +23,15 @@ export function BoardColumnView({
   issues,
   hiddenIds,
   dragId,
+  index,
+  totalColumns,
   onDragStart,
   onDragEnd,
   onDropCard,
+  onMoveColumn,
 }: BoardColumnViewProps) {
-  const { moveIssue } = useBoard();
+  const { user, moveIssue, setEditingColumn } = useBoard();
+  const isAdmin = user?.role === "admin";
   const bodyRef = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
   void moveIssue;
@@ -44,9 +51,44 @@ export function BoardColumnView({
     <div className="col" data-col={column.key}>
       <div className={`col-head colhead-${column.color}`}>
         <h2>{column.label}</h2>
-        <span className="count num" data-count>
-          {String(issues.length).padStart(2, "0")}
-        </span>
+        <div className="col-head-right">
+          {isAdmin && index != null && totalColumns != null && (
+            <div className="col-admin-actions" aria-label={`Admin controls for ${column.label}`}>
+              <button
+                type="button"
+                className="col-admin-btn"
+                onClick={() => onMoveColumn?.(index, -1)}
+                disabled={index === 0}
+                title="Shift column left"
+                aria-label={`Shift ${column.label} left`}
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                className="col-admin-btn"
+                onClick={() => onMoveColumn?.(index, 1)}
+                disabled={index === totalColumns - 1}
+                title="Shift column right"
+                aria-label={`Shift ${column.label} right`}
+              >
+                →
+              </button>
+              <button
+                type="button"
+                className="col-admin-btn"
+                onClick={() => setEditingColumn(column)}
+                title="Column settings"
+                aria-label={`Settings for ${column.label}`}
+              >
+                ⚙
+              </button>
+            </div>
+          )}
+          <span className="count num" data-count>
+            {String(issues.length).padStart(2, "0")}
+          </span>
+        </div>
       </div>
       <div
         ref={bodyRef}

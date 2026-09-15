@@ -15,16 +15,21 @@ import type {
   Board,
   BoardColumn,
   ChecklistItem,
+  CreateColumnPayload,
   CreateIssuePayload,
   Issue,
   ProjectSummary,
+  UpdateColumnPayload,
   UpdateIssuePayload,
 } from "../domain/types";
+import type { UpsertSprintInput } from "../domain/repositories";
 import { ApiError, api } from "./api";
+import { sanitizeNext } from "./sanitize-next";
 import {
   applyIssueFilters,
   boardReducer,
   THEME_KEY,
+  ACTIVE_PROJECT_KEY,
   type IssueFilters,
 } from "./board-reducer";
 
@@ -37,6 +42,15 @@ interface AuthActions {
   login: (username: string, password: string, rememberMe: boolean) => Promise<void>;
   logout: () => Promise<void>;
   refreshSession: () => Promise<void>;
+}
+
+export type ToastType = "success" | "error" | "info";
+
+export interface ToastState {
+  id: number;
+  message: string;
+  type: ToastType;
+  title?: string;
 }
 
 interface BoardStore extends AuthActions {
@@ -55,21 +69,39 @@ interface BoardStore extends AuthActions {
   switching: boolean;
   loadError: string | null;
   forbidden: boolean;
-  toast: string | null;
+  toast: ToastState | null;
   dialogOpen: boolean;
+  sprintDialogOpen: boolean;
+  deleteTargetIssue: Issue | null;
+  editingIssue: Issue | null;
   filters: IssueFilters;
   dark: boolean;
   setFilters: (f: IssueFilters) => void;
   toggleDark: () => void;
   setDialogOpen: (open: boolean) => void;
+  setSprintDialogOpen: (open: boolean) => void;
+  setDeleteTargetIssue: (issue: Issue | null) => void;
+  setEditingIssue: (issue: Issue | null) => void;
+  showToast: (message: string, type?: ToastType, title?: string) => void;
   dismissToast: () => void;
   selectProject: (key: string) => Promise<void>;
   retry: () => void;
   toggleChecklist: (issueId: number, itemId: number) => Promise<void>;
+  addChecklistItem: (issueId: number, text: string) => Promise<void>;
   moveIssue: (issueId: number, status: string, beforeIssueId: number | null) => Promise<void>;
   createIssue: (payload: CreateIssuePayload) => Promise<void>;
   updateIssue: (id: number, payload: UpdateIssuePayload) => Promise<void>;
+  updateSprint: (payload: UpsertSprintInput) => Promise<void>;
   deleteIssue: (id: number) => Promise<void>;
+  refreshProjects: (preferredKey?: string | null) => Promise<void>;
+  addColumnOpen: boolean;
+  setAddColumnOpen: (open: boolean) => void;
+  editingColumn: BoardColumn | null;
+  setEditingColumn: (col: BoardColumn | null) => void;
+  reorderColumns: (orderedKeys: string[]) => Promise<void>;
+  createColumn: (payload: CreateColumnPayload) => Promise<void>;
+  updateColumn: (key: string, payload: UpdateColumnPayload) => Promise<void>;
+  deleteColumn: (key: string) => Promise<void>;
 }
 
 const BoardContext = createContext<BoardStore | null>(null);
@@ -106,8 +138,14 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   const [switching, setSwitching] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const toastIdRef = useRef(0);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [sprintDialogOpen, setSprintDialogOpen] = useState(false);
+  const [addColumnOpen, setAddColumnOpen] = useState(false);
+  const [editingColumn, setEditingColumn] = useState<BoardColumn | null>(null);
+  const [deleteTargetIssue, setDeleteTargetIssue] = useState<Issue | null>(null);
+  const [editingIssue, setEditingIssue] = useState<Issue | null>(null);
   const [filters, setFilters] = useState<IssueFilters>({ mine: false, mineCode: null, urgent: false, query: "" });
   const [dark, setDark] = useState(false);
   const tempId = useRef(-1);
@@ -117,11 +155,19 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
 
   const columns = useMemo<BoardColumn[]>(() => board?.columns ?? [], [board]);
 
-  const flashToast = useCallback((msg: string) => {
-    setToast(msg);
+  const showToast = useCallback((msg: string, type: ToastType = "info", title?: string) => {
+    toastIdRef.current += 1;
+    setToast({ id: toastIdRef.current, message: msg, type, title });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   }, []);
+
+  const flashToast = useCallback(
+    (msg: string, type: ToastType = "error", title?: string) => {
+      showToast(msg, type, title);
+    },
+    [showToast],
+  );
 
   const dismissToast = useCallback(() => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -132,6 +178,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     const data = await api.getBoard(key);
     setBoard(data);
     setProjectKey(data.project.key);
+    try {
+      localStorage.setItem(ACTIVE_PROJECT_KEY, data.project.key);
+    } catch {
+      // ignore
+    }
     dispatch({ type: "SET_ISSUES", issues: data.issues });
   }, []);
 
@@ -142,12 +193,19 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     try {
       const list = await api.getProjects();
       setProjects(list);
-      const first = list[0];
-      if (!first) {
+      if (list.length === 0) {
         setPhase("ready");
         return;
       }
-      await loadBoard(first.key);
+      let savedKey: string | null = null;
+      try {
+        savedKey = localStorage.getItem(ACTIVE_PROJECT_KEY);
+      } catch {
+        savedKey = null;
+      }
+      const match = savedKey ? list.find((p) => p.key === savedKey) : null;
+      const initial = match ?? list[0];
+      await loadBoard(initial.key);
       setPhase("ready");
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
@@ -159,6 +217,42 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       setPhase("error");
     }
   }, [loadBoard]);
+
+  const refreshProjects = useCallback(
+    async (preferredKey?: string | null) => {
+      try {
+        const list = await api.getProjects();
+        setProjects(list);
+        let savedKey: string | null = null;
+        try {
+          savedKey = localStorage.getItem(ACTIVE_PROJECT_KEY);
+        } catch {
+          savedKey = null;
+        }
+        const targetKey = preferredKey ?? projectKey ?? savedKey;
+        const exists = list.some((p) => p.key === targetKey);
+        if (exists && targetKey) {
+          if (targetKey !== projectKey) {
+            await loadBoard(targetKey);
+          }
+        } else if (list.length > 0) {
+          await loadBoard(list[0].key);
+        } else {
+          setBoard(null);
+          setProjectKey(null);
+          try {
+            localStorage.removeItem(ACTIVE_PROJECT_KEY);
+          } catch {
+            // ignore
+          }
+          dispatch({ type: "SET_ISSUES", issues: [] });
+        }
+      } catch (err) {
+        console.error("Failed to refresh projects", err);
+      }
+    },
+    [projectKey, loadBoard],
+  );
 
   const refreshSession = useCallback(async () => {
     try {
@@ -177,8 +271,17 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
   }, [refreshSession]);
 
   useEffect(() => {
-    if (sessionStatus === "authed") void loadProjects();
-    else if (sessionStatus === "anon") setPhase("ready");
+    if (sessionStatus === "authed") {
+      void loadProjects();
+    } else if (sessionStatus === "anon") {
+      if (typeof window !== "undefined") {
+        const p = window.location.pathname;
+        if (p !== "/login" && p !== "/register") {
+          const next = sanitizeNext(window.location.pathname + window.location.search);
+          window.location.href = `/login?next=${encodeURIComponent(next)}`;
+        }
+      }
+    }
   }, [sessionStatus, loadProjects]);
 
   useEffect(() => {
@@ -228,6 +331,11 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     setBoard(null);
     setProjects([]);
     setProjectKey(null);
+    try {
+      localStorage.removeItem(ACTIVE_PROJECT_KEY);
+    } catch {
+      // ignore
+    }
     dispatch({ type: "SET_ISSUES", issues: [] });
     window.location.href = "/login";
   }, []);
@@ -273,6 +381,22 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     [issues, flashToast],
   );
 
+  const addChecklistItem = useCallback(
+    async (issueId: number, text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      try {
+        const item = await api.addChecklistItem(issueId, trimmed);
+        dispatch({ type: "ADD_ITEM", issueId, item });
+        showToast("Checklist item added", "success");
+      } catch (err) {
+        flashToast(failMessage(err, "Failed to add checklist item"));
+        throw err;
+      }
+    },
+    [flashToast, showToast],
+  );
+
   const moveIssue = useCallback(
     async (issueId: number, status: string, beforeIssueId: number | null) => {
       const prev = issues;
@@ -280,12 +404,13 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       try {
         const data = await api.moveIssue(issueId, { status, beforeIssueId });
         dispatch({ type: "SET_ISSUES", issues: data.issues });
+        showToast("Issue moved successfully", "success");
       } catch (err) {
         dispatch({ type: "SET_ISSUES", issues: prev });
         flashToast(failMessage(err, "Move failed"));
       }
     },
-    [issues, flashToast],
+    [issues, flashToast, showToast],
   );
 
   const createIssue = useCallback(
@@ -322,12 +447,14 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       try {
         const created = await api.createIssue(projectKey ?? "", payload);
         dispatch({ type: "RECONCILE_CREATE", tempId: id, issue: created });
+        showToast("Issue created successfully", "success");
       } catch (err) {
         dispatch({ type: "REMOVE", issueId: id });
         flashToast(failMessage(err, "Create failed"));
+        throw err;
       }
     },
-    [board, issues, projectKey, flashToast],
+    [board, issues, projectKey, flashToast, showToast],
   );
 
   const updateIssue = useCallback(
@@ -350,12 +477,14 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       try {
         const updated = await api.updateIssue(id, payload);
         dispatch({ type: "SET_ISSUE", issue: updated });
+        showToast("Issue updated successfully", "success");
       } catch (err) {
         dispatch({ type: "SET_ISSUE", issue: prev });
         flashToast(failMessage(err, "Update failed"));
+        throw err;
       }
     },
-    [issues, flashToast],
+    [issues, flashToast, showToast],
   );
 
   const deleteIssue = useCallback(
@@ -364,12 +493,128 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: "REMOVE", issueId: id });
       try {
         await api.deleteIssue(id);
+        showToast("Issue deleted successfully", "success");
       } catch (err) {
         dispatch({ type: "SET_ISSUES", issues: prev });
         flashToast(failMessage(err, "Delete failed"));
+        throw err;
       }
     },
-    [issues, flashToast],
+    [issues, flashToast, showToast],
+  );
+
+  const updateSprint = useCallback(
+    async (payload: UpsertSprintInput) => {
+      if (!projectKey) return;
+      try {
+        const updated = await api.updateSprint(projectKey, payload);
+        setBoard((prev) => (prev ? { ...prev, sprint: updated } : null));
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.key === projectKey
+              ? {
+                  ...p,
+                  activeSprint: {
+                    number: updated.number,
+                    kicker: updated.kicker,
+                    title: updated.title,
+                    daysLeft: updated.daysLeft,
+                  },
+                }
+              : p,
+          ),
+        );
+        showToast("Sprint updated successfully", "success");
+        setSprintDialogOpen(false);
+      } catch (err) {
+        flashToast(failMessage(err, "Failed to update sprint"));
+        throw err;
+      }
+    },
+    [projectKey, flashToast, showToast],
+  );
+
+  const reorderColumns = useCallback(
+    async (orderedKeys: string[]) => {
+      if (!projectKey || !board) return;
+      const prev = board.columns;
+      const keyMap = new Map(prev.map((c) => [c.key, c]));
+      const next: BoardColumn[] = [];
+      for (const k of orderedKeys) {
+        const c = keyMap.get(k);
+        if (c) next.push({ ...c, position: next.length });
+      }
+      setBoard((b) => (b ? { ...b, columns: next } : b));
+      try {
+        const saved = await api.admin.reorderColumns(projectKey, { orderedKeys });
+        setBoard((b) => (b ? { ...b, columns: saved } : b));
+        showToast("Columns reordered successfully", "success");
+      } catch (err) {
+        setBoard((b) => (b ? { ...b, columns: prev } : b));
+        flashToast(failMessage(err, "Failed to reorder columns"));
+        throw err;
+      }
+    },
+    [projectKey, board, showToast, flashToast],
+  );
+
+  const createColumn = useCallback(
+    async (payload: CreateColumnPayload) => {
+      if (!projectKey) return;
+      try {
+        const col = await api.admin.createColumn(projectKey, payload);
+        setBoard((b) => (b ? { ...b, columns: [...b.columns, col] } : b));
+        showToast(`Column "${col.label}" created`, "success");
+      } catch (err) {
+        flashToast(failMessage(err, "Failed to create column"));
+        throw err;
+      }
+    },
+    [projectKey, showToast, flashToast],
+  );
+
+  const updateColumn = useCallback(
+    async (key: string, payload: UpdateColumnPayload) => {
+      if (!projectKey) return;
+      try {
+        const updated = await api.admin.updateColumn(projectKey, key, payload);
+        setBoard((b) =>
+          b
+            ? {
+                ...b,
+                columns: b.columns.map((c) => (c.key === key ? updated : c)),
+              }
+            : b,
+        );
+        showToast("Column updated successfully", "success");
+      } catch (err) {
+        flashToast(failMessage(err, "Failed to update column"));
+        throw err;
+      }
+    },
+    [projectKey, showToast, flashToast],
+  );
+
+  const deleteColumn = useCallback(
+    async (key: string) => {
+      if (!projectKey) return;
+      try {
+        await api.admin.deleteColumn(projectKey, key);
+        setBoard((b) =>
+          b
+            ? {
+                ...b,
+                columns: b.columns.filter((c) => c.key !== key),
+              }
+            : b,
+        );
+        showToast("Column deleted", "success");
+      } catch (err) {
+        flashToast(failMessage(err, "Failed to delete column"));
+        throw err;
+      }
+    },
+    [projectKey, showToast, flashToast],
   );
 
   const visibleIssues = useMemo(() => applyIssueFilters(issues, filters), [issues, filters]);
@@ -393,19 +638,37 @@ export function BoardProvider({ children }: { children: React.ReactNode }) {
     forbidden,
     toast,
     dialogOpen,
+    sprintDialogOpen,
+    deleteTargetIssue,
+    editingIssue,
     filters,
     dark,
     setFilters,
     toggleDark,
     setDialogOpen,
+    setSprintDialogOpen,
+    setDeleteTargetIssue,
+    setEditingIssue,
+    showToast,
     dismissToast,
     selectProject,
     retry,
     toggleChecklist,
+    addChecklistItem,
     moveIssue,
     createIssue,
     updateIssue,
+    updateSprint,
     deleteIssue,
+    refreshProjects,
+    addColumnOpen,
+    setAddColumnOpen,
+    editingColumn,
+    setEditingColumn,
+    reorderColumns,
+    createColumn,
+    updateColumn,
+    deleteColumn,
     login,
     logout,
     refreshSession,
