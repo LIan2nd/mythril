@@ -470,30 +470,48 @@ button.sprint-chip:hover .sprint-chip-edit {
   transition: left .15s ease
 }
 
-.toggle[aria-pressed="true"] {
+.toggle[aria-pressed="true"],
+.toggle[aria-selected="true"],
+.toggle[aria-checked="true"],
+.toggle.active {
   background: var(--yellow);
   color: var(--fixed-ink)
 }
 
-.toggle[aria-pressed="true"] .sw {
+.toggle[aria-pressed="true"] .sw,
+.toggle[aria-selected="true"] .sw,
+.toggle[aria-checked="true"] .sw,
+.toggle.active .sw {
   background: var(--fixed-ink)
 }
 
-.toggle[aria-pressed="true"] .sw::after {
+.toggle[aria-pressed="true"] .sw::after,
+.toggle[aria-selected="true"] .sw::after,
+.toggle[aria-checked="true"] .sw::after,
+.toggle.active .sw::after {
   left: 21px;
   background: var(--yellow)
 }
 
-.toggle.urgent[aria-pressed="true"] {
+.toggle.urgent[aria-pressed="true"],
+.toggle.urgent[aria-selected="true"],
+.toggle.urgent[aria-checked="true"],
+.toggle.urgent.active {
   background: var(--coral);
   color: var(--fixed-ink)
 }
 
-.toggle.urgent[aria-pressed="true"] .sw {
+.toggle.urgent[aria-pressed="true"] .sw,
+.toggle.urgent[aria-selected="true"] .sw,
+.toggle.urgent[aria-checked="true"] .sw,
+.toggle.urgent.active .sw {
   background: var(--fixed-ink)
 }
 
-.toggle.urgent[aria-pressed="true"] .sw::after {
+.toggle.urgent[aria-pressed="true"] .sw::after,
+.toggle.urgent[aria-selected="true"] .sw::after,
+.toggle.urgent[aria-checked="true"] .sw::after,
+.toggle.urgent.active .sw::after {
   background: var(--coral)
 }
 
