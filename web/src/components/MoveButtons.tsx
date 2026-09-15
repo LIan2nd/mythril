@@ -9,7 +9,7 @@ interface MoveButtonsProps {
 }
 
 export function MoveButtons({ issueId, statusIndex, columnCount }: MoveButtonsProps) {
-  const { issues, columns, moveIssue, deleteIssue } = useBoard();
+  const { issues, columns, moveIssue, setDeleteTargetIssue } = useBoard();
   const issue = issues.find((i) => i.id === issueId);
 
   const step = (dir: -1 | 1) => {
@@ -36,7 +36,7 @@ export function MoveButtons({ issueId, statusIndex, columnCount }: MoveButtonsPr
         title={issue ? `Delete ${issue.key}` : "Delete issue"}
         onClick={(e) => {
           e.stopPropagation();
-          void deleteIssue(issueId);
+          if (issue) setDeleteTargetIssue(issue);
         }}
       >
         ✕

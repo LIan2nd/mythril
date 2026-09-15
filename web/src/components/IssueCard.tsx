@@ -27,7 +27,7 @@ function focusCard(id: number) {
 }
 
 export function IssueCard({ issue, hidden, dragging, onDragStart, onDragEnd }: IssueCardProps) {
-  const { moveIssue, visibleIssues, columns } = useBoard();
+  const { moveIssue, visibleIssues, columns, setEditingIssue } = useBoard();
   const ref = useRef<HTMLElement>(null);
   const statusIndex = columnIndexOf(columns, issue.status);
   const done = issue.checklist.filter((c) => c.done).length;
@@ -90,9 +90,35 @@ export function IssueCard({ issue, hidden, dragging, onDragStart, onDragEnd }: I
           {issue.priority}
         </span>
         <span className={`badge ${issue.type === "BUG" ? "b-bug" : "b-task"}`}>{issue.type}</span>
+        <button
+          type="button"
+          className="card-edit-btn"
+          aria-label={`Edit ${issue.key}`}
+          title={`Edit ${issue.key}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditingIssue(issue);
+          }}
+        >
+          ✎
+        </button>
       </div>
-      <h3>{issue.title}</h3>
-      <p className="desc">{issue.description}</p>
+      <h3
+        className="card-title-clickable"
+        title={`Click to edit ${issue.key}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setEditingIssue(issue);
+        }}
+      >
+        {issue.title}
+      </h3>
+      {(() => {
+        const raw = issue.description?.trim() ?? "";
+        if (!raw || raw.startsWith("Created from + New Issue")) return null;
+        const truncated = raw.length > 120 ? `${raw.slice(0, 120)}…` : raw;
+        return <p className="desc">{truncated}</p>;
+      })()}
       <ul className="check">
         {issue.checklist.map((c) => (
           <ChecklistRow key={c.id} issueId={issue.id} item={c} />
