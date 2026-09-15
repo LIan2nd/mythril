@@ -47,7 +47,7 @@ describe.skipIf(!GATE)('postgres integration', () => {
     await bootstrapDb();
     const board = await db.board.getBoard('NEBULA-OS');
     expect(board.issues).toHaveLength(10);
-    expect(board.users.map((u) => u.code).sort()).toEqual(['AD', 'AS', 'JT', 'MK', 'RP']);
+    expect(board.users.map((u) => u.code).sort()).toEqual(['AS', 'JT', 'MK', 'RP']);
     expect(board.issues.map((i) => i.key).sort()).toEqual(
       ['MY-100', 'MY-101', 'MY-102', 'MY-103', 'MY-104', 'MY-105', 'MY-106', 'MY-107', 'MY-108', 'MY-109'].sort(),
     );

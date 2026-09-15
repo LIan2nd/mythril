@@ -36,7 +36,7 @@ export class PostgresIssueRepo implements IssueRepo {
 
   async listByProject(projectId: number): Promise<Issue[]> {
     const rows = (await this.sql.unsafe(
-      `${SELECT_ISSUE} left join board_columns bc on bc.key = i.status where i.project_id = $1 ${BOARD_ORDER}`,
+      `${SELECT_ISSUE} left join board_columns bc on bc.project_id = i.project_id and bc.key = i.status where i.project_id = $1 ${BOARD_ORDER}`,
       [projectId],
     )) as IssueRow[];
 
@@ -168,9 +168,20 @@ export class PostgresIssueRepo implements IssueRepo {
     return Number(rows[0]?.count ?? 0);
   }
 
+  async countByProjectAndStatus(projectId: number, status: string): Promise<number> {
+    const rows = await this.sql`select count(*)::int as count from issues where project_id = ${projectId} and status = ${status}`;
+    return Number(rows[0]?.count ?? 0);
+  }
+
   async countByAssignee(userCode: string): Promise<number> {
     const rows = await this.sql`select count(*)::int as count from issues where assignee = ${userCode}`;
     return Number(rows[0]?.count ?? 0);
+  }
+
+  async reassign(projectId: number, fromCodes: string[], toCode: string): Promise<number> {
+    if (fromCodes.length === 0) return 0;
+    const res = await this.sql`update issues set assignee = ${toCode}, updated_at = now() where project_id = ${projectId} and assignee = ANY(${fromCodes}::text[])`;
+    return res.count;
   }
 
   private async fetchById(id: number): Promise<Issue> {

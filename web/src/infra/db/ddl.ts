@@ -6,7 +6,15 @@ export const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS users (
   code text PRIMARY KEY,
   name text NOT NULL,
-  avatar_color text NOT NULL
+  avatar_color text NOT NULL,
+  username text,
+  password_hash text,
+  role text NOT NULL DEFAULT 'member',
+  status text NOT NULL DEFAULT 'active',
+  display_name text,
+  avatar bytea,
+  avatar_type text,
+  avatar_updated_at timestamptz
 );
 CREATE TABLE IF NOT EXISTS projects (
   id serial PRIMARY KEY,
@@ -14,26 +22,58 @@ CREATE TABLE IF NOT EXISTS projects (
   name text NOT NULL
 );
 CREATE TABLE IF NOT EXISTS board_columns (
-  key text PRIMARY KEY,
+  id serial PRIMARY KEY,
+  project_id integer REFERENCES projects(id) ON DELETE CASCADE,
+  key text NOT NULL,
   label text NOT NULL,
   kind text NOT NULL CHECK (kind IN ('backlog','active','review','done')),
   color text NOT NULL CHECK (color IN ('lavender','yellow','coral','mint','sky')),
   position integer NOT NULL
 );
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'board_columns' AND column_name = 'project_id') THEN
+    ALTER TABLE board_columns ADD COLUMN project_id integer REFERENCES projects(id) ON DELETE CASCADE;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'board_columns' AND column_name = 'id') THEN
+    ALTER TABLE board_columns DROP CONSTRAINT IF EXISTS board_columns_pkey CASCADE;
+    ALTER TABLE board_columns ADD COLUMN id serial PRIMARY KEY;
+  END IF;
+END $$;
+DO $$ BEGIN
+  ALTER TABLE board_columns ALTER COLUMN project_id SET NOT NULL;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'board_columns_project_key_unique') THEN
+    ALTER TABLE board_columns ADD CONSTRAINT board_columns_project_key_unique UNIQUE (project_id, key);
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'issues') THEN
+    ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_status_fkey;
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'issues_project_status_fkey') THEN
+    ALTER TABLE issues ADD CONSTRAINT issues_project_status_fkey FOREIGN KEY (project_id, status) REFERENCES board_columns(project_id, key) ON UPDATE CASCADE;
+  END IF;
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 CREATE TABLE IF NOT EXISTS project_members (
   project_id integer NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   user_code text NOT NULL REFERENCES users(code) ON DELETE CASCADE,
   PRIMARY KEY (project_id, user_code)
 );
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'username') THEN ALTER TABLE users ADD COLUMN username text; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_hash') THEN ALTER TABLE users ADD COLUMN password_hash text; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'role') THEN ALTER TABLE users ADD COLUMN role text NOT NULL DEFAULT 'member'; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'status') THEN ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'active'; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'display_name') THEN ALTER TABLE users ADD COLUMN display_name text; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'avatar') THEN ALTER TABLE users ADD COLUMN avatar bytea; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'avatar_type') THEN ALTER TABLE users ADD COLUMN avatar_type text; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'avatar_updated_at') THEN ALTER TABLE users ADD COLUMN avatar_updated_at timestamptz; END IF; END $$;
-DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id') THEN
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'username') THEN ALTER TABLE users ADD COLUMN username text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'password_hash') THEN ALTER TABLE users ADD COLUMN password_hash text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'role') THEN ALTER TABLE users ADD COLUMN role text NOT NULL DEFAULT 'member'; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'status') THEN ALTER TABLE users ADD COLUMN status text NOT NULL DEFAULT 'active'; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'display_name') THEN ALTER TABLE users ADD COLUMN display_name text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'avatar') THEN ALTER TABLE users ADD COLUMN avatar bytea; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'avatar_type') THEN ALTER TABLE users ADD COLUMN avatar_type text; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'avatar_updated_at') THEN ALTER TABLE users ADD COLUMN avatar_updated_at timestamptz; END IF; END $$;
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id') THEN
   CREATE SEQUENCE IF NOT EXISTS users_id_seq;
   ALTER TABLE users ADD COLUMN id integer UNIQUE NOT NULL DEFAULT nextval('users_id_seq');
 END IF; END $$;
@@ -74,6 +114,11 @@ CREATE TABLE IF NOT EXISTS checklist_items (
   position integer NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_issues_board ON issues(project_id, status, position);
+CREATE TABLE IF NOT EXISTS app_metadata (
+  key text PRIMARY KEY,
+  value text NOT NULL,
+  updated_at timestamptz DEFAULT now()
+);
 `;
 
 export interface SeedStatement {
@@ -284,21 +329,25 @@ export function buildSeedStatements(): SeedStatement[] {
   });
 
   stmts.push({
-    sql: `INSERT INTO board_columns (key, label, kind, color, position)
-      SELECT * FROM (VALUES ${DEFAULT_COLUMNS.map(
-        (_, i) => `($${i * 5 + 1}, $${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5}::int)`,
-      ).join(', ')}) AS v(key, label, kind, color, position)
-      WHERE NOT EXISTS (SELECT 1 FROM board_columns)
-      ON CONFLICT (key) DO NOTHING`,
-    params: DEFAULT_COLUMNS.flatMap((c) => [c.key, c.label, c.kind, c.color, c.position]),
-  });
-
-  stmts.push({
     sql: `INSERT INTO projects (key, name) VALUES ${SEED_PROJECTS.map(
       (_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`,
     ).join(', ')} ON CONFLICT (key) DO NOTHING`,
     params: SEED_PROJECTS.flatMap((p) => [p.key, p.name]),
   });
+
+  for (const p of SEED_PROJECTS) {
+    stmts.push({
+      sql: `INSERT INTO board_columns (project_id, key, label, kind, color, position)
+        SELECT p.id, v.key, v.label, v.kind, v.color, v.position::int
+        FROM projects p
+        CROSS JOIN (VALUES ${DEFAULT_COLUMNS.map(
+          (_, i) => `($${i * 5 + 2}, $${i * 5 + 3}, $${i * 5 + 4}, $${i * 5 + 5}, $${i * 5 + 6}::int)`,
+        ).join(', ')}) AS v(key, label, kind, color, position)
+        WHERE p.key = $1 AND NOT EXISTS (SELECT 1 FROM board_columns bc WHERE bc.project_id = p.id)
+        ON CONFLICT (project_id, key) DO NOTHING`,
+      params: [p.key, ...DEFAULT_COLUMNS.flatMap((c) => [c.key, c.label, c.kind, c.color, c.position])],
+    });
+  }
 
   stmts.push({
     sql: `INSERT INTO users (code, name, avatar_color, username, password_hash, role, status, display_name)
@@ -331,16 +380,16 @@ export function buildSeedStatements(): SeedStatement[] {
   stmts.push({
     sql: `INSERT INTO project_members (project_id, user_code)
       SELECT p.id, u.code FROM projects p CROSS JOIN users u
-      WHERE u.code = ANY($1::text[]) AND u.status = $2
+      WHERE p.key = ANY($3::text[]) AND u.code = ANY($1::text[]) AND u.status = $2
       ON CONFLICT (project_id, user_code) DO NOTHING`,
-    params: [SEED_USERS.map((u) => u.code), 'active'],
+    params: [SEED_USERS.map((u) => u.code), 'active', SEED_PROJECTS.map((p) => p.key)],
   });
 
   // Must run after the board_columns defaults above: FK creation validates existing issue rows.
   stmts.push({
     sql: `DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'issues_status_fkey') THEN
-        ALTER TABLE issues ADD CONSTRAINT issues_status_fkey FOREIGN KEY (status) REFERENCES board_columns(key);
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'issues_project_status_fkey') THEN
+        ALTER TABLE issues ADD CONSTRAINT issues_project_status_fkey FOREIGN KEY (project_id, status) REFERENCES board_columns(project_id, key) ON UPDATE CASCADE;
       END IF;
     END $$`,
     params: [],
