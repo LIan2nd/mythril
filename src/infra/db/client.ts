@@ -4,8 +4,6 @@ export type Sql = postgres.Sql;
 
 const FALLBACK_URL = 'postgresql://mythril:***@localhost:5432/mythril';
 
-let pool: Sql | null = null;
-
 function resolveUrl(): string {
   return process.env.DB_URL?.trim() || process.env.DATABASE_URL?.trim() || FALLBACK_URL;
 }

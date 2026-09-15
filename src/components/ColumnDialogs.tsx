@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { ColumnColor, ColumnKind } from "../domain/types";
-import { COLUMN_COLORS, COLUMN_KINDS } from "../domain/types";
 import { useBoard } from "../lib/store";
 import { CustomSelect } from "./CustomSelect";
 

@@ -160,6 +160,7 @@ export class PostgresIssueRepo implements IssueRepo {
   }
 
   async generateKey(_projectKey: string): Promise<string> {
+    void _projectKey;
     return generateKeyWith(this.sql);
   }
 
