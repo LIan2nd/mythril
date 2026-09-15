@@ -1,4 +1,5 @@
-import type { BoardColumnRepo, IssueRepo, ProjectRepo, SprintRepo, UserRepo } from '@/domain/repositories';
+import { ValidationError } from '@/domain/errors';
+import type { BoardColumnRepo, IssueRepo, ProjectRepo, SprintRepo, UpsertSprintInput, UserRepo } from '@/domain/repositories';
 import type { AuthUser, Board, ProjectSummary, Sprint } from '@/domain/types';
 import { sortIssuesForBoard } from '@/domain/types';
 import { requireMembership, requireProjectByKey } from './guards';
@@ -48,17 +49,36 @@ export class BoardService {
   async getBoard(projectKey: string, user: AuthUser): Promise<Board> {
     const project = await requireProjectByKey(this.deps.projects, projectKey);
     await requireMembership(this.deps.projects, project.id, user);
-    const [rawSprint, columns, issues, memberCodes] = await Promise.all([
+    const memberCodes = await this.deps.projects.memberCodes(project.id);
+    const [rawSprint, columns, issues, users] = await Promise.all([
       this.deps.sprints.getActiveForProject(project.id),
-      this.deps.columns.list(),
+      this.deps.columns.list(project.id),
       this.deps.issues.listByProject(project.id),
-      user.role === 'admin' ? Promise.resolve<string[] | null>(null) : this.deps.projects.memberCodes(project.id),
+      this.deps.users.listAuthByCodes(memberCodes),
     ]);
-    const users =
-      memberCodes === null
-        ? await this.deps.users.listAuth()
-        : await this.deps.users.listAuthByCodes(memberCodes);
     const sprint: Sprint | null = rawSprint ? { ...rawSprint, daysLeft: daysLeftFrom(rawSprint.endsAt) } : null;
     return { project, sprint, users, columns, issues: sortIssuesForBoard(issues, columns) };
+  }
+
+  async updateSprint(projectKey: string, input: UpsertSprintInput, user: AuthUser): Promise<Sprint> {
+    const project = await requireProjectByKey(this.deps.projects, projectKey);
+    await requireMembership(this.deps.projects, project.id, user);
+
+    if (input.number < 1) throw new ValidationError('Sprint number must be at least 1');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.startsAt)) {
+      throw new ValidationError('Start date must be in YYYY-MM-DD format');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(input.endsAt)) {
+      throw new ValidationError('End date must be in YYYY-MM-DD format');
+    }
+    if (input.endsAt < input.startsAt) {
+      throw new ValidationError('End date cannot be earlier than start date');
+    }
+
+    const saved = await this.deps.sprints.upsertActiveForProject(project.id, input);
+    return {
+      ...saved,
+      daysLeft: daysLeftFrom(saved.endsAt),
+    };
   }
 }

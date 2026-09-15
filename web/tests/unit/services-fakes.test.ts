@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '@/domain/errors';
 import type {
   AdminUserPatch,
   BoardColumnRepo,
@@ -9,6 +9,7 @@ import type {
   ProjectRepo,
   SprintRepo,
   UpdateIssueInput,
+  UpsertSprintInput,
   UserProfilePatch,
   UserRepo,
 } from '@/domain/repositories';
@@ -23,6 +24,7 @@ import type {
   User,
 } from '@/domain/types';
 import { DEFAULT_COLUMNS } from '@/domain/types';
+import { AdminService } from '@/services/admin.service';
 import { BoardService, daysLeftFrom } from '@/services/board-service';
 import { ChecklistService, MAX_CHECKLIST_ITEMS } from '@/services/checklist-service';
 import { DEFAULT_CHECKLIST, IssueService } from '@/services/issue-service';
@@ -39,7 +41,10 @@ function suffixOf(key: string): number {
 }
 
 class FakeProjects implements ProjectRepo {
-  constructor(public rows: Project[] = [{ id: 1, key: 'NEBULA-OS', name: 'NEBULA-OS' }], public members: string[] = ['MK', 'JT']) {}
+  private projectMembers = new Map<number, string[]>();
+  constructor(public rows: Project[] = [{ id: 1, key: 'NEBULA-OS', name: 'NEBULA-OS' }], members: string[] = ['MK', 'JT']) {
+    this.projectMembers.set(1, [...members]);
+  }
   async list() {
     return [...this.rows];
   }
@@ -52,6 +57,7 @@ class FakeProjects implements ProjectRepo {
   async create(input: { key: string; name: string }) {
     const project = { id: this.rows.length + 1, ...input };
     this.rows.push(project);
+    this.projectMembers.set(project.id, []);
     return project;
   }
   async update(id: number, patch: { key?: string; name?: string }) {
@@ -62,21 +68,28 @@ class FakeProjects implements ProjectRepo {
   }
   async remove(id: number) {
     this.rows = this.rows.filter((p) => p.id !== id);
+    this.projectMembers.delete(id);
   }
-  async countIssues() {
-    return 0;
+  async countIssues(projectId: number) {
+    return projectId === 1 ? 1 : 0; // Fake some issues for project 1 if needed, wait, we shouldn't hardcode this, let's inject it via issues.
   }
   async listForUser(userCode: string) {
     return userCode && this.members.includes(userCode) ? this.list() : [];
   }
-  async memberCodes() {
-    return [...this.members];
+  async memberCodes(projectId: number) {
+    return [...(this.projectMembers.get(projectId) ?? [])];
   }
-  async isMember(_projectId: number, userCode: string) {
-    return this.members.includes(userCode);
+  async isMember(projectId: number, userCode: string) {
+    return (this.projectMembers.get(projectId) ?? []).includes(userCode);
   }
-  async setMembers(_projectId: number, codes: string[]) {
-    this.members = [...codes];
+  async setMembers(projectId: number, codes: string[]) {
+    this.projectMembers.set(projectId, [...codes]);
+  }
+  get members() {
+    return this.projectMembers.get(1) ?? [];
+  }
+  set members(codes: string[]) {
+    this.projectMembers.set(1, [...codes]);
   }
 }
 
@@ -88,10 +101,24 @@ class FakeSprints implements SprintRepo {
   async getActiveForProject(projectId: number) {
     return this.map.get(projectId) ?? null;
   }
+  async upsertActiveForProject(projectId: number, input: UpsertSprintInput): Promise<Sprint> {
+    const sprint: Sprint = {
+      id: 999,
+      number: input.number,
+      kicker: input.kicker ?? `Sprint #${input.number}`,
+      title: input.title ?? 'Sprint Goal',
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      daysLeft: 14,
+    };
+    this.map.set(projectId, sprint);
+    return sprint;
+  }
 }
 
 class FakeUsers implements UserRepo {
   rows: User[] = [
+    { code: 'AD', name: 'Admin', avatarColor: 'sky' },
     { code: 'MK', name: 'M. Kade', avatarColor: 'yellow' },
     { code: 'JT', name: 'J. Torres', avatarColor: 'sky' },
   ];
@@ -102,6 +129,7 @@ class FakeUsers implements UserRepo {
     return this.rows.find((u) => u.code === code) ?? null;
   }
   authRows: AuthUser[] = [
+    ADMIN,
     MEMBER,
     { id: 3, username: 'jt', code: 'JT', displayName: 'J. Torres', role: 'member', status: 'active', color: 'sky', hasAvatar: false },
   ];
@@ -138,37 +166,44 @@ class FakeUsers implements UserRepo {
 }
 
 class FakeColumns implements BoardColumnRepo {
-  rows: BoardColumn[] = DEFAULT_COLUMNS.map((c) => ({ ...c }));
-  async list() {
-    return [...this.rows].sort((a, b) => a.position - b.position).map((c) => ({ ...c }));
+  rows: (BoardColumn & { projectId: number })[] = DEFAULT_COLUMNS.map((c) => ({ ...c, projectId: 1 }));
+  async list(projectId: number) {
+    return this.rows
+      .filter((c) => c.projectId === projectId)
+      .sort((a, b) => a.position - b.position)
+      .map((c) => ({ ...c }));
   }
-  async getByKey(key: string) {
-    const found = this.rows.find((c) => c.key === key);
+  async getByKey(projectId: number, key: string) {
+    const found = this.rows.find((c) => c.projectId === projectId && c.key === key);
     return found ? { ...found } : null;
   }
-  async create(input: { key: string; label: string; kind: BoardColumn['kind']; color: BoardColumn['color']; beforeKey: string | null }) {
-    const anchor = input.beforeKey ? this.rows.find((c) => c.key === input.beforeKey) : undefined;
-    const position = anchor ? anchor.position : this.rows.length;
-    for (const c of this.rows) if (c.position >= position) c.position += 1;
-    const column = { key: input.key, label: input.label, kind: input.kind, color: input.color, position };
+  async create(
+    projectId: number,
+    input: { key: string; label: string; kind: BoardColumn['kind']; color: BoardColumn['color']; beforeKey: string | null },
+  ) {
+    const projRows = this.rows.filter((c) => c.projectId === projectId);
+    const anchor = input.beforeKey ? projRows.find((c) => c.key === input.beforeKey) : undefined;
+    const position = anchor ? anchor.position : projRows.length;
+    for (const c of projRows) if (c.position >= position) c.position += 1;
+    const column = { projectId, key: input.key, label: input.label, kind: input.kind, color: input.color, position };
     this.rows.push(column);
     return { ...column };
   }
-  async update(key: string, patch: Partial<Pick<BoardColumn, 'label' | 'kind' | 'color'>>) {
-    const column = this.rows.find((c) => c.key === key);
+  async update(projectId: number, key: string, patch: Partial<Pick<BoardColumn, 'label' | 'kind' | 'color'>>) {
+    const column = this.rows.find((c) => c.projectId === projectId && c.key === key);
     if (!column) throw new NotFoundError(`Column ${key} not found`);
     Object.assign(column, patch);
     return { ...column };
   }
-  async reorder(orderedKeys: string[]) {
+  async reorder(projectId: number, orderedKeys: string[]) {
     orderedKeys.forEach((key, position) => {
-      const column = this.rows.find((c) => c.key === key);
+      const column = this.rows.find((c) => c.projectId === projectId && c.key === key);
       if (column) column.position = position;
     });
-    return this.list();
+    return this.list(projectId);
   }
-  async remove(key: string) {
-    this.rows = this.rows.filter((c) => c.key !== key);
+  async remove(projectId: number, key: string) {
+    this.rows = this.rows.filter((c) => !(c.projectId === projectId && c.key === key));
   }
 }
 
@@ -282,8 +317,23 @@ class FakeIssues implements IssueRepo {
   async countByStatus(status: string) {
     return this.rows.filter((i) => i.status === status).length;
   }
+  async countByProjectAndStatus(projectId: number, status: string) {
+    return this.rows.filter((i) => i.projectId === projectId && i.status === status).length;
+  }
   async countByAssignee(userCode: string) {
     return this.rows.filter((i) => i.assignee.code === userCode).length;
+  }
+  async reassign(projectId: number, fromCodes: string[], toCode: string) {
+    const targetUser = await this.users.getByCode(toCode);
+    if (!targetUser) throw new ValidationError(`Unknown assignee ${toCode}`);
+    let count = 0;
+    for (const issue of this.rows) {
+      if (issue.projectId === projectId && fromCodes.includes(issue.assignee.code)) {
+        issue.assignee = targetUser;
+        count++;
+      }
+    }
+    return count;
   }
 }
 
@@ -336,7 +386,8 @@ function fixtures() {
   const board = new BoardService({ projects, sprints, users, issues, columns });
   const issueSvc = new IssueService({ projects, users, issues, columns });
   const checklistSvc = new ChecklistService({ projects, issues, checklist });
-  return { users, projects, sprints, issues, checklist, columns, board, issueSvc, checklistSvc };
+  const adminSvc = new AdminService({ users, projects, issues, columns });
+  return { users, projects, sprints, issues, checklist, columns, board, issueSvc, checklistSvc, adminSvc };
 }
 
 const basePayload = {
@@ -512,6 +563,220 @@ describe('BoardService summaries + board', () => {
     await expect(f.board.getBoard('GHOST', MEMBER)).rejects.toBeInstanceOf(NotFoundError);
     f.projects.members = ['AD'];
     await expect(f.board.getBoard('NEBULA-OS', MEMBER)).rejects.toBeInstanceOf(ForbiddenError);
-    await f.board.getBoard('NEBULA-OS', ADMIN);
+    const adminBoard = await f.board.getBoard('NEBULA-OS', ADMIN);
+    expect(adminBoard.users.map((u) => u.code)).toEqual(['AD']);
+  });
+});
+
+describe('AdminService RBAC hardening', () => {
+  it('createProject returns AdminProjectDetail and seeds 4 default columns', async () => {
+    const f = fixtures();
+    const created = await f.adminSvc.createProject({ key: 'PROJ-NEW', name: 'New Project' });
+    expect(created.key).toBe('PROJ-NEW');
+    expect(created.name).toBe('New Project');
+    expect(created.members).toEqual([]);
+    expect(created.issueCount).toBe(0);
+
+    const cols = await f.columns.list(created.id);
+    expect(cols).toHaveLength(4);
+    expect(cols.map((c) => c.key)).toEqual(DEFAULT_COLUMNS.map((c) => c.key));
+  });
+
+  it('columns are isolated between projects', async () => {
+    const f = fixtures();
+    await f.projects.create({ key: 'PROJ-B', name: 'Project B' });
+
+    await f.adminSvc.createColumn('NEBULA-OS', { label: 'QA Review', kind: 'active', color: 'yellow' });
+    await f.adminSvc.createColumn('PROJ-B', { label: 'Triage', kind: 'backlog', color: 'lavender' });
+
+    const colsA = await f.adminSvc.listColumns('NEBULA-OS');
+    const colsB = await f.adminSvc.listColumns('PROJ-B');
+
+    expect(colsA.map((c) => c.label)).toContain('QA Review');
+    expect(colsA.map((c) => c.label)).not.toContain('Triage');
+
+    expect(colsB.map((c) => c.label)).toContain('Triage');
+    expect(colsB.map((c) => c.label)).not.toContain('QA Review');
+  });
+
+  it('prevents deleting a column if it has issues in that specific project', async () => {
+    const f = fixtures();
+    f.issues.seed({ key: 'MY-201', projectId: 1, status: 'progress', position: 0 });
+    await expect(f.adminSvc.deleteColumn('NEBULA-OS', 'progress')).rejects.toThrow(ConflictError);
+  });
+
+  it('reassigns issues to admin actor if admin is in the remaining roster', async () => {
+    const f = fixtures();
+    await f.projects.setMembers(1, ['AD', 'MK', 'JT']);
+    const issue = f.issues.seed({
+      key: 'MY-202',
+      projectId: 1,
+      status: 'todo',
+      position: 0,
+      assignee: { code: 'MK', name: 'M. Kade', avatarColor: 'yellow' },
+    });
+
+    await f.adminSvc.setProjectMembers('NEBULA-OS', ['AD', 'JT'], ADMIN);
+    expect(issue.assignee.code).toBe('AD');
+  });
+
+  it('reassigns issues to alphabetically first member if admin actor is NOT in remaining roster', async () => {
+    const f = fixtures();
+    await f.projects.setMembers(1, ['MK', 'JT']);
+    const issue = f.issues.seed({
+      key: 'MY-203',
+      projectId: 1,
+      status: 'todo',
+      position: 0,
+      assignee: { code: 'MK', name: 'M. Kade', avatarColor: 'yellow' },
+    });
+
+    await f.adminSvc.setProjectMembers('NEBULA-OS', ['JT'], ADMIN);
+    expect(issue.assignee.code).toBe('JT');
+  });
+
+  it('throws 409 Conflict if removing the last member while issues are still assigned', async () => {
+    const f = fixtures();
+    await f.projects.setMembers(1, ['MK']);
+    f.issues.seed({
+      key: 'MY-204',
+      projectId: 1,
+      status: 'todo',
+      position: 0,
+      assignee: { code: 'MK', name: 'M. Kade', avatarColor: 'yellow' },
+    });
+
+    await expect(f.adminSvc.setProjectMembers('NEBULA-OS', [], ADMIN)).rejects.toThrow(ConflictError);
+  });
+
+  it('allows removing all members if no issues are assigned', async () => {
+    const f = fixtures();
+    await f.projects.setMembers(1, ['MK']);
+
+    const result = await f.adminSvc.setProjectMembers('NEBULA-OS', [], ADMIN);
+    expect(result.members).toEqual([]);
+    expect(await f.projects.memberCodes(1)).toEqual([]);
+  });
+
+  it('board users is strictly roster-only even for admin', async () => {
+    const f = fixtures();
+    await f.projects.setMembers(1, ['MK']);
+    const board = await f.board.getBoard('NEBULA-OS', ADMIN);
+    expect(board.users.map((u) => u.code)).toEqual(['MK']);
+  });
+
+  it('deleteProject rejects if issues exist unless cascade is true', async () => {
+    const f = fixtures();
+    f.issues.seed({ key: 'MY-300', projectId: 1, status: 'todo', position: 0 });
+    
+    // Without cascade, should throw conflict
+    await expect(f.adminSvc.deleteProject('NEBULA-OS')).rejects.toThrow(ConflictError);
+    await expect(f.adminSvc.deleteProject('NEBULA-OS', { cascade: false })).rejects.toThrow(ConflictError);
+    
+    // With cascade, should succeed
+    await expect(f.adminSvc.deleteProject('NEBULA-OS', { cascade: true })).resolves.not.toThrow();
+    
+    // Ensure project was deleted
+    await expect(f.projects.getByKey('NEBULA-OS')).resolves.toBeNull();
+  });
+
+  it('deleteProject succeeds without cascade if no issues exist', async () => {
+    const f = fixtures();
+    await f.projects.create({ key: 'PROJ-EMPTY', name: 'Empty' });
+    
+    // Project has no issues, should succeed without cascade
+    await expect(f.adminSvc.deleteProject('PROJ-EMPTY')).resolves.not.toThrow();
+    await expect(f.projects.getByKey('PROJ-EMPTY')).resolves.toBeNull();
+  });
+
+  describe('BoardService.updateSprint', () => {
+    it('updates sprint details and dates', async () => {
+      const f = fixtures();
+      const updated = await f.board.updateSprint(
+        'NEBULA-OS',
+        {
+          number: 15,
+          title: 'Ship Beta Release',
+          kicker: 'Sprint #15',
+          startsAt: '2026-09-15',
+          endsAt: '2026-09-29',
+        },
+        ADMIN,
+      );
+      expect(updated.number).toBe(15);
+      expect(updated.title).toBe('Ship Beta Release');
+      expect(updated.startsAt).toBe('2026-09-15');
+      expect(updated.endsAt).toBe('2026-09-29');
+    });
+
+    it('rejects invalid sprint number', async () => {
+      const f = fixtures();
+      await expect(
+        f.board.updateSprint(
+          'NEBULA-OS',
+          {
+            number: 0,
+            startsAt: '2026-09-15',
+            endsAt: '2026-09-29',
+          },
+          ADMIN,
+        ),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('rejects invalid date formats', async () => {
+      const f = fixtures();
+      await expect(
+        f.board.updateSprint(
+          'NEBULA-OS',
+          {
+            number: 1,
+            startsAt: 'invalid-date',
+            endsAt: '2026-09-29',
+          },
+          ADMIN,
+        ),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it('rejects end date earlier than start date', async () => {
+      const f = fixtures();
+      await expect(
+        f.board.updateSprint(
+          'NEBULA-OS',
+          {
+            number: 1,
+            startsAt: '2026-09-30',
+            endsAt: '2026-09-15',
+          },
+          ADMIN,
+        ),
+      ).rejects.toThrow('End date cannot be earlier than start date');
+    });
+
+    it('rejects non-members', async () => {
+      const f = fixtures();
+      const nonMember: AuthUser = {
+        id: 88,
+        username: 'stranger',
+        role: 'member',
+        code: 'ST',
+        displayName: 'Stranger',
+        status: 'active',
+        color: 'sky',
+        hasAvatar: false,
+      };
+      await expect(
+        f.board.updateSprint(
+          'NEBULA-OS',
+          {
+            number: 1,
+            startsAt: '2026-09-15',
+            endsAt: '2026-09-29',
+          },
+          nonMember,
+        ),
+      ).rejects.toThrow(ForbiddenError);
+    });
   });
 });

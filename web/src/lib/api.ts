@@ -22,10 +22,12 @@ import type {
   RegisterRequestPayload,
   ReorderColumnsPayload,
   Role,
+  Sprint,
   UpdateColumnPayload,
   UpdateIssuePayload,
   UserStatus,
 } from "../domain/types";
+import type { UpsertSprintInput } from "../domain/repositories";
 
 export class ApiError extends Error {
   status: number;
@@ -71,6 +73,11 @@ export function avatarSrc(code: string | null | undefined, ts?: number): string 
 export const api = {
   getProjects: () => req<ProjectSummary[]>("/api/projects"),
   getBoard: (key: string) => req<Board>(`/api/projects/${encodeURIComponent(key)}/board`),
+  updateSprint: (key: string, payload: UpsertSprintInput) =>
+    req<Sprint>(`/api/projects/${encodeURIComponent(key)}/sprint`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
   createIssue: (key: string, payload: CreateIssuePayload) =>
     req<Issue>(`/api/projects/${encodeURIComponent(key)}/issues`, {
       method: "POST",
@@ -137,24 +144,34 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
-    deleteProject: (key: string) =>
-      req<unknown>(`/api/admin/projects/${encodeURIComponent(key)}`, { method: "DELETE" }),
+    deleteProject: (key: string, cascade = false) =>
+      req<unknown>(`/api/admin/projects/${encodeURIComponent(key)}${cascade ? '?cascade=true' : ''}`, { method: "DELETE" }),
     setMembers: (key: string, payload: ProjectMembersPayload) =>
       req<AdminProjectDetail>(`/api/admin/projects/${encodeURIComponent(key)}/members`, {
         method: "PUT",
         body: JSON.stringify(payload),
       }),
-    createColumn: (payload: CreateColumnPayload) =>
-      req<BoardColumn>("/api/admin/columns", { method: "POST", body: JSON.stringify(payload) }),
-    updateColumn: (key: string, payload: UpdateColumnPayload) =>
-      req<BoardColumn>(`/api/admin/columns/${encodeURIComponent(key)}`, {
+    listColumns: (projectKey: string) =>
+      req<BoardColumn[]>(`/api/admin/projects/${encodeURIComponent(projectKey)}/columns`),
+    createColumn: (projectKey: string, payload: CreateColumnPayload) =>
+      req<BoardColumn>(`/api/admin/projects/${encodeURIComponent(projectKey)}/columns`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    updateColumn: (projectKey: string, key: string, payload: UpdateColumnPayload) =>
+      req<BoardColumn>(`/api/admin/projects/${encodeURIComponent(projectKey)}/columns/${encodeURIComponent(key)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       }),
-    reorderColumns: (payload: ReorderColumnsPayload) =>
-      req<BoardColumn[]>("/api/admin/columns/reorder", { method: "PUT", body: JSON.stringify(payload) }),
-    deleteColumn: (key: string) =>
-      req<unknown>(`/api/admin/columns/${encodeURIComponent(key)}`, { method: "DELETE" }),
+    reorderColumns: (projectKey: string, payload: ReorderColumnsPayload) =>
+      req<BoardColumn[]>(`/api/admin/projects/${encodeURIComponent(projectKey)}/columns/reorder`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      }),
+    deleteColumn: (projectKey: string, key: string) =>
+      req<unknown>(`/api/admin/projects/${encodeURIComponent(projectKey)}/columns/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+      }),
   },
 };
 
