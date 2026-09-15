@@ -482,7 +482,7 @@ button.sprint-chip:hover .sprint-chip-edit {
 .toggle[aria-selected="true"] .sw,
 .toggle[aria-checked="true"] .sw,
 .toggle.active .sw {
-  background: var(--fixed-ink)
+  background: #ffffff;
 }
 
 .toggle[aria-pressed="true"] .sw::after,
@@ -490,7 +490,7 @@ button.sprint-chip:hover .sprint-chip-edit {
 .toggle[aria-checked="true"] .sw::after,
 .toggle.active .sw::after {
   left: 21px;
-  background: var(--yellow)
+  background: var(--fixed-ink);
 }
 
 .toggle.urgent[aria-pressed="true"],
@@ -505,14 +505,15 @@ button.sprint-chip:hover .sprint-chip-edit {
 .toggle.urgent[aria-selected="true"] .sw,
 .toggle.urgent[aria-checked="true"] .sw,
 .toggle.urgent.active .sw {
-  background: var(--fixed-ink)
+  background: #ffffff;
 }
 
 .toggle.urgent[aria-pressed="true"] .sw::after,
 .toggle.urgent[aria-selected="true"] .sw::after,
 .toggle.urgent[aria-checked="true"] .sw::after,
 .toggle.urgent.active .sw::after {
-  background: var(--coral)
+  left: 21px;
+  background: var(--fixed-ink);
 }
 
 .filter-note {
