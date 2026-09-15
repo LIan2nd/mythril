@@ -20,15 +20,11 @@ export const metadata: Metadata = {
     "agile",
     "developer tools",
   ],
-  authors: [{ name: "MYTHRIL Team" }],
-  creator: "MYTHRIL",
+  authors: [{ name: "LIan", url: "https://portfolio.liand.web.id" }],
+  creator: "LIan",
   publisher: "MYTHRIL",
   alternates: {
     canonical: "/",
-  },
-  icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: "/icon.svg",
   },
   openGraph: {
     type: "website",
