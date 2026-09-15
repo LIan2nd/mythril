@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Toast } from "../../components/Toast";
 import { Topbar } from "../../components/Topbar";
 import { ApiError, api, avatarSrc } from "../../lib/api";
@@ -21,20 +21,36 @@ function colorVar(c: string): string {
 
 function ProfilePage() {
   const router = useRouter();
-  const { user, sessionStatus, refreshSession } = useBoard();
+  const { user, sessionStatus, refreshSession, showToast } = useBoard();
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [color, setColor] = useState("lav");
   const [cur, setCur] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [identityTouched, setIdentityTouched] = useState<Record<string, boolean>>({});
+  const [identitySubmitted, setIdentitySubmitted] = useState(false);
+  const showIdentityErr = (f: string) => identitySubmitted || !!identityTouched[f];
+  const markIdentityTouched = (f: string) => setIdentityTouched((prev) => ({ ...prev, [f]: true }));
+
+  const [securityTouched, setSecurityTouched] = useState<Record<string, boolean>>({});
+  const [securitySubmitted, setSecuritySubmitted] = useState(false);
+  const showSecurityErr = (f: string) => securitySubmitted || !!securityTouched[f];
+  const markSecurityTouched = (f: string) => setSecurityTouched((prev) => ({ ...prev, [f]: true }));
+
   const [avatarTs, setAvatarTs] = useState(() => Date.now());
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const setNote = useCallback(
+    (msg: string | null) => {
+      if (msg) showToast(msg, "error");
+    },
+    [showToast],
+  );
+
   useEffect(() => {
-    if (sessionStatus === "anon") router.push("/login");
+    if (sessionStatus === "anon") router.push("/login?next=/profile");
   }, [sessionStatus, router]);
 
   useEffect(() => {
@@ -61,35 +77,57 @@ function ProfilePage() {
   const dirty =
     username.trim() !== user.username || displayName.trim() !== user.displayName || color !== user.color;
 
+  const usernameErr = !username.trim()
+    ? "Username is required"
+    : !/^[a-z0-9._-]{2,32}$/.test(username.trim())
+    ? "2-32 chars (lowercase letters, digits, dot, dash, underscore)"
+    : null;
+  const displayNameErr = !displayName.trim()
+    ? "Display name is required"
+    : displayName.trim().length < 2 || displayName.trim().length > 60
+    ? "Must be 2-60 characters"
+    : null;
+  const identityValid = !usernameErr && !displayNameErr;
+
+  const curErr = !cur ? "Current password is required" : null;
+  const nextErr = !next ? "New password is required" : next.length < 8 ? "Must be at least 8 characters" : null;
+  const confirmErr = !confirm ? "Please confirm password" : confirm !== next ? "Passwords must match" : null;
+  const securityValid = !curErr && !nextErr && !confirmErr;
+
   const saveIdentity = async () => {
+    setIdentitySubmitted(true);
+    if (!dirty || !identityValid || busy) return;
     setBusy(true);
-    setNote(null);
     try {
       await api.profile.update({ username: username.trim(), displayName: displayName.trim(), color });
       await refreshSession();
-      setNote("Profile saved");
+      showToast("Profile saved successfully", "success");
     } catch (err) {
-      setNote(err instanceof ApiError ? err.message : "Save failed");
+      showToast(err instanceof ApiError ? err.message : "Save failed", "error");
     } finally {
       setBusy(false);
     }
   };
 
   const changePassword = async () => {
-    if (next !== confirm || next.length < 8) {
-      setNote("New passwords must match (8+ chars)");
+    setSecuritySubmitted(true);
+    if (!securityValid || busy) {
+      if (next !== confirm || next.length < 8) {
+        showToast("New passwords must match (8+ chars)", "error");
+      }
       return;
     }
     setBusy(true);
-    setNote(null);
     try {
       await api.profile.password({ currentPassword: cur, newPassword: next });
       setCur("");
       setNext("");
       setConfirm("");
-      setNote("Password changed");
+      setSecurityTouched({});
+      setSecuritySubmitted(false);
+      showToast("Password changed successfully", "success");
     } catch (err) {
-      setNote(err instanceof ApiError ? err.message : "Password change failed");
+      showToast(err instanceof ApiError ? err.message : "Password change failed", "error");
     } finally {
       setBusy(false);
     }
@@ -97,14 +135,13 @@ function ProfilePage() {
 
   const uploadAvatar = async (file: File) => {
     setBusy(true);
-    setNote(null);
     try {
       await api.profile.avatar(file);
       await refreshSession();
       setAvatarTs(Date.now());
-      setNote("Avatar updated");
+      showToast("Avatar updated successfully", "success");
     } catch (err) {
-      setNote(err instanceof ApiError ? err.message : "Upload failed");
+      showToast(err instanceof ApiError ? err.message : "Upload failed", "error");
     } finally {
       setBusy(false);
     }
@@ -112,14 +149,13 @@ function ProfilePage() {
 
   const removeAvatar = async () => {
     setBusy(true);
-    setNote(null);
     try {
       await api.profile.removeAvatar();
       await refreshSession();
       setAvatarTs(Date.now());
-      setNote("Avatar removed");
+      showToast("Avatar removed successfully", "success");
     } catch (err) {
-      setNote(err instanceof ApiError ? err.message : "Remove failed");
+      showToast(err instanceof ApiError ? err.message : "Remove failed", "error");
     } finally {
       setBusy(false);
     }
@@ -132,24 +168,36 @@ function ProfilePage() {
         <p className="kicker">
           <Link href="/">Board</Link> / Profile
         </p>
-        {note ? (
-          <div className="toast" role="status">
-            {note}{" "}
-            <button aria-label="Dismiss note" onClick={() => setNote(null)} style={{ background: "transparent", border: 0, fontWeight: 900 }}>
-              ✕
-            </button>
-          </div>
-        ) : null}
         <div className="profile-grid">
           <section className="card" aria-label="Identity">
             <h2>Identity</h2>
             <div className="field">
               <label htmlFor="pfUser">Username</label>
-              <input className="input" id="pfUser" value={username} onChange={(e) => setUsername(e.target.value)} />
+              <input
+                className={`input${showIdentityErr("username") && usernameErr ? " input-error" : ""}`}
+                id="pfUser"
+                value={username}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  setNote(null);
+                }}
+                onBlur={() => markIdentityTouched("username")}
+              />
+              {showIdentityErr("username") && usernameErr && <span className="field-error-msg">{usernameErr}</span>}
             </div>
             <div className="field">
               <label htmlFor="pfName">Display name</label>
-              <input className="input" id="pfName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+              <input
+                className={`input${showIdentityErr("displayName") && displayNameErr ? " input-error" : ""}`}
+                id="pfName"
+                value={displayName}
+                onChange={(e) => {
+                  setDisplayName(e.target.value);
+                  setNote(null);
+                }}
+                onBlur={() => markIdentityTouched("displayName")}
+              />
+              {showIdentityErr("displayName") && displayNameErr && <span className="field-error-msg">{displayNameErr}</span>}
             </div>
             <div className="field">
               <span className="kicker">Color</span>
@@ -176,7 +224,7 @@ function ProfilePage() {
                 Preview
               </span>
             </div>
-            <button className="btn-chunk btn-go" disabled={!dirty || busy} onClick={saveIdentity}>
+            <button className="btn-chunk btn-go" disabled={!dirty || (identitySubmitted && !identityValid) || busy} onClick={saveIdentity}>
               {busy ? "Saving..." : "Save profile"}
             </button>
           </section>
@@ -216,17 +264,53 @@ function ProfilePage() {
             <h2>Security</h2>
             <div className="field">
               <label htmlFor="pfCur">Current password</label>
-              <input className="input" id="pfCur" type="password" autoComplete="current-password" value={cur} onChange={(e) => setCur(e.target.value)} />
+              <input
+                className={`input${showSecurityErr("cur") && curErr ? " input-error" : ""}`}
+                id="pfCur"
+                type="password"
+                autoComplete="current-password"
+                value={cur}
+                onChange={(e) => {
+                  setCur(e.target.value);
+                  setNote(null);
+                }}
+                onBlur={() => markSecurityTouched("cur")}
+              />
+              {showSecurityErr("cur") && curErr && <span className="field-error-msg">{curErr}</span>}
             </div>
             <div className="field">
               <label htmlFor="pfNext">New password</label>
-              <input className="input" id="pfNext" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
+              <input
+                className={`input${showSecurityErr("next") && nextErr ? " input-error" : ""}`}
+                id="pfNext"
+                type="password"
+                autoComplete="new-password"
+                value={next}
+                onChange={(e) => {
+                  setNext(e.target.value);
+                  setNote(null);
+                }}
+                onBlur={() => markSecurityTouched("next")}
+              />
+              {showSecurityErr("next") && nextErr && <span className="field-error-msg">{nextErr}</span>}
             </div>
             <div className="field">
               <label htmlFor="pfConfirm">Confirm new password</label>
-              <input className="input" id="pfConfirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+              <input
+                className={`input${showSecurityErr("confirm") && confirmErr ? " input-error" : ""}`}
+                id="pfConfirm"
+                type="password"
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => {
+                  setConfirm(e.target.value);
+                  setNote(null);
+                }}
+                onBlur={() => markSecurityTouched("confirm")}
+              />
+              {showSecurityErr("confirm") && confirmErr && <span className="field-error-msg">{confirmErr}</span>}
             </div>
-            <button className="btn-chunk btn-go" onClick={changePassword} disabled={busy}>
+            <button className="btn-chunk btn-go" onClick={changePassword} disabled={busy || (securitySubmitted && !securityValid)}>
               Change password
             </button>
           </section>

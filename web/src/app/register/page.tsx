@@ -14,10 +14,14 @@ export default function RegisterPage() {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [touched, setTouched] = useState(false);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+
+  const isFieldTouched = (field: string) => submitted || !!touched[field];
+  const markTouched = (field: string) => setTouched((prev) => ({ ...prev, [field]: true }));
 
   const uErr = fieldError(username.trim(), /^[a-z0-9._-]{3,32}$/, "3-32 chars: a-z 0-9 . _ -");
   const nErr = displayName.trim().length >= 2 && displayName.trim().length <= 60 ? null : "2-60 chars";
@@ -27,7 +31,7 @@ export default function RegisterPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setTouched(true);
+    setSubmitted(true);
     if (!valid || busy) return;
     setBusy(true);
     setError(null);
@@ -74,50 +78,66 @@ export default function RegisterPage() {
         <div className="field">
           <label htmlFor="regUser">Username</label>
           <input
-            className="input"
+            className={`input${isFieldTouched("username") && uErr ? " input-error" : ""}`}
             id="regUser"
             autoComplete="username"
             value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            onChange={(e) => {
+              setUsername(e.target.value);
+              setError(null);
+            }}
+            onBlur={() => markTouched("username")}
           />
-          {touched && uErr ? <span className="auth-field-err">{uErr}</span> : null}
+          {isFieldTouched("username") && uErr ? <span className="auth-field-err">{uErr}</span> : null}
         </div>
         <div className="field">
           <label htmlFor="regName">Display name</label>
           <input
-            className="input"
+            className={`input${isFieldTouched("displayName") && nErr ? " input-error" : ""}`}
             id="regName"
             autoComplete="name"
             value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+              setError(null);
+            }}
+            onBlur={() => markTouched("displayName")}
           />
-          {touched && nErr ? <span className="auth-field-err">{nErr}</span> : null}
+          {isFieldTouched("displayName") && nErr ? <span className="auth-field-err">{nErr}</span> : null}
         </div>
         <div className="field">
           <label htmlFor="regPass">Password</label>
           <input
-            className="input"
+            className={`input${isFieldTouched("password") && pErr ? " input-error" : ""}`}
             id="regPass"
             type="password"
             autoComplete="new-password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
+            onBlur={() => markTouched("password")}
           />
-          {touched && pErr ? <span className="auth-field-err">{pErr}</span> : null}
+          {isFieldTouched("password") && pErr ? <span className="auth-field-err">{pErr}</span> : null}
         </div>
         <div className="field">
           <label htmlFor="regConfirm">Confirm password</label>
           <input
-            className="input"
+            className={`input${isFieldTouched("confirm") && cErr ? " input-error" : ""}`}
             id="regConfirm"
             type="password"
             autoComplete="new-password"
             value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
+            onChange={(e) => {
+              setConfirm(e.target.value);
+              setError(null);
+            }}
+            onBlur={() => markTouched("confirm")}
           />
-          {touched && cErr ? <span className="auth-field-err">{cErr}</span> : null}
+          {isFieldTouched("confirm") && cErr ? <span className="auth-field-err">{cErr}</span> : null}
         </div>
-        <button className="btn-chunk btn-new" type="submit" disabled={busy}>
+        <button className="btn-chunk btn-new" type="submit" disabled={busy || (submitted && !valid)}>
           {busy ? "Submitting..." : "Request access"}
         </button>
         <p className="auth-link">
