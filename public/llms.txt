@@ -1,0 +1,27 @@
+# MYTHRIL
+
+> High-velocity Neo-Brutalist Sprint Kanban & Project Management dashboard.
+
+## Overview
+MYTHRIL is a modern developer-centric sprint management and Kanban application built with Next.js 15, React 19, TypeScript, and PostgreSQL. It delivers an authentic Neo-Brutalist design language (3px solid borders, hard drop shadows, high contrast palettes, and zero fluff) combined with robust engineering features.
+
+## Key Capabilities
+- **Kanban Workflow**: Drag-and-drop issue cards, keyboard moves, subtask checklist items, and real-time status updates.
+- **In-Place Stage Management**: Reorder columns (`[←]`, `[→]`), create custom stages (`+ ADD COLUMN`), and configure labels/colors/kinds directly on the dashboard (`/`) without navigating away to an admin console.
+- **Interactive Sprint Settings**: Configure sprint duration presets (1-4 weeks), custom start and end date pickers, sprint goals, and real-time sprint health metrics (open issues, high-severity bugs, completion progress).
+- **Multi-Project System**: Global active project state persistence in `localStorage` across page transitions (`/`, `/admin`, `/profile`) and full browser reloads.
+- **Role-Based Access Control (RBAC)**: Admin dashboard with user approval requests, password resets, member assignment rosters, and 2-step cascade safety warnings.
+- **Form & Input Experience**: Accessible custom select dropdowns, granular per-field validation without premature error banners on keyboard navigation, and instant dark/light mode toggle.
+
+## Tech Stack
+- Frontend: Next.js 15 (App Router), React 19, Vanilla CSS Design System
+- Backend: Next.js Route Handlers, Node.js crypto authentication (scrypt + HMAC session cookies)
+- Database: PostgreSQL (compatible with Supabase Transaction Pooler and SSL require mode)
+- Testing: Vitest unit test suite (60+ tests) and PostgreSQL database integration tests
+
+## Routes
+- `/`: Main interactive Kanban board, sprint banner, and in-place column controls
+- `/login`: Session authentication with remember-me support
+- `/register`: User onboarding with administrative approval request flow
+- `/profile`: User profile management, password change, and custom avatar upload
+- `/admin`: Administrative panel for user approvals, project rosters, and global column defaults
