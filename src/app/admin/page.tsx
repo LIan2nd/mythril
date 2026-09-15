@@ -251,7 +251,6 @@ function AdminPage() {
               role="tab"
               aria-selected={tab === t.key}
               className="toggle"
-              aria-pressed={tab === t.key}
               onClick={() => setTab(t.key)}
             >
               <span className="sw" aria-hidden="true" />
@@ -1333,7 +1332,7 @@ function AddColumnModal(props: {
         <span className="kicker">Kind</span>
         <div className="chip-row" role="radiogroup" aria-label="Column kind">
           {COLUMN_KINDS.map((k) => (
-            <button key={k} type="button" role="radio" aria-checked={kind === k} className="toggle" aria-pressed={kind === k} onClick={() => setKind(k)}>
+            <button key={k} type="button" role="radio" aria-checked={kind === k} className="toggle" onClick={() => setKind(k)}>
               <span className="sw" aria-hidden="true" />
               {k}
             </button>

@@ -106,6 +106,8 @@ export function CustomSelect<T extends string = string>({
     }
   };
 
+  const listboxId = `${selectId}-listbox`;
+
   return (
     <div
       ref={containerRef}
@@ -119,6 +121,7 @@ export function CustomSelect<T extends string = string>({
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={listboxId}
         aria-label={ariaLabel}
         aria-invalid={ariaInvalid}
         aria-describedby={ariaDescribedby}
@@ -138,6 +141,7 @@ export function CustomSelect<T extends string = string>({
       {open && (
         <ul
           ref={listRef}
+          id={listboxId}
           className="neo-select-menu"
           role="listbox"
           aria-label={ariaLabel}

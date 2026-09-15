@@ -14,6 +14,7 @@ export function ChecklistRow({ issueId, item }: ChecklistRowProps) {
     <li className={item.done ? "done" : ""}>
       <button
         className="cbox"
+        role="checkbox"
         aria-checked={item.done}
         aria-label={`Toggle ${item.text}`}
         onClick={(e) => {
